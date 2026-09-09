@@ -46,6 +46,13 @@ abstract contract TestBase {
         require(ok, "expectRevert failed");
     }
 
+    function vmExpectEmit(bool checkTopic1, bool checkTopic2, bool checkTopic3, bool checkData) internal {
+        (bool ok, ) = VM_ADDRESS.call(
+            abi.encodeWithSignature("expectEmit(bool,bool,bool,bool)", checkTopic1, checkTopic2, checkTopic3, checkData)
+        );
+        require(ok, "expectEmit failed");
+    }
+
     function vmExpectRevert() internal {
         (bool ok, ) = VM_ADDRESS.call(abi.encodeWithSignature("expectRevert()"));
         require(ok, "expectRevert failed");
