@@ -158,6 +158,27 @@ contract ProtectionNote is ERC721 {
         return ProtectionMath.payout(note.amount, note.entryPrice, note.level, settlementPrice8);
     }
 
+    /// @notice Live quote for the create flow: reads the current oracle price and
+    ///         returns exactly what create() would store at this instant, so the UI
+    ///         never recomputes rates or prices client-side.
+    function quote(address asset, uint256 amount, uint256 level, uint256 duration)
+        external
+        view
+        returns (uint256 premiumUSD18, uint256 protectedUSD18, uint256 expiry)
+    {
+        AssetRegistry.Asset memory entry = registry.getAsset(asset);
+        if (!entry.registered) revert UnsupportedAsset();
+        if (!entry.active) revert AssetInactive();
+        if (amount == 0) revert InvalidAmount();
+
+        (uint256 price8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
+        premiumUSD18 = ProtectionMath.premium(
+            ProtectionMath.usdValue(amount, price8), ProtectionMath.premiumRateBps(level, duration)
+        );
+        protectedUSD18 = ProtectionMath.protectedValue(amount, price8, level);
+        expiry = block.timestamp + duration;
+    }
+
     /// @notice True when a note exists, is active, and has passed its expiry.
     function isSettlable(uint256 noteId) external view returns (bool) {
         return noteId > 0 && noteId <= nextId && notes[noteId].status == Status.ACTIVE
