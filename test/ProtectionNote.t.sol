@@ -351,6 +351,23 @@ contract ProtectionNoteTest is NoteFixture {
         assertFalse(note.isSettlable(id), "settled note not settlable");
     }
 
+    function test_Quote_MatchesCreateStorage() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+
+        (uint256 premiumUSD18, uint256 protectedUSD18, uint256 expiry) = note.quote(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
+        (, , , , uint256 storedExpiry, uint256 storedPremium, uint256 storedProtected, , ) = note.notes(id);
+
+        assertEq(premiumUSD18, storedPremium, "quote premium must match create");
+        assertEq(protectedUSD18, storedProtected, "quote floor must match create");
+        assertEq(expiry, storedExpiry, "quote expiry must match create");
+    }
+
+    function test_Quote_RevertsOnInactiveAsset() public {
+        registry.setAssetActive(tsla, false);
+        vmExpectRevert(ProtectionNote.AssetInactive.selector);
+        note.quote(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
+    }
+
     // ------------------------------------------------------------------
     // Fuzzed end-to-end: payout always matches math and never exceeds liability
     // ------------------------------------------------------------------
