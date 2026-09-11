@@ -11,8 +11,9 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 
 /// @title Deploy
 /// @notice Full protocol deployment, chain-configured via DeployConfig (spec §7).
-///         Settlement token is on-chain config for Arbitrum One (USDC) and resolved
-///         from SETTLEMENT_TOKEN for chains without a verified address yet.
+///         Sherwood targets Robinhood Chain: the settlement token is on-chain config
+///         for mainnet (canonical USDG) and resolved from SETTLEMENT_TOKEN on the
+///         testnet until its USDG address is verified and published.
 ///         Stock tokens and Chainlink feeds are read from the environment so feed
 ///         addresses can be verified per chain at deploy time instead of baked in.
 ///
