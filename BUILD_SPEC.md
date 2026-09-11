@@ -8,7 +8,7 @@ Complete technical specification. `AGENTS.md` is the build contract; this is the
 
 Sherwood sells downside protection for tokenized stocks. A user holding a stock token buys a **Protection Note**: they pay a premium in a stablecoin and define a floor (70/80/90% of entry value). At expiry, the note settles against a Chainlink price. If price < floor, the Vault pays `floor − current`. The user keeps all upside.
 
-**Deployed on two chains:** Robinhood Chain testnet and Arbitrum One/Sepolia. Identical bytecode; per-chain config differs only in settlement token and feed addresses.
+**Deployed on Robinhood Chain only** (mainnet 4663, testnet 46630 — an Arbitrum-based L2). Settlement token is USDG; per-network config differs only in token and feed addresses.
 
 ---
 
@@ -59,13 +59,13 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 ## 3. Architecture
 
 ```
-User ──> ProtectionNote (ERC721)
+User ──> ProtectionNote (struct registry, noteId-keyed)
           │ create(): validate asset → read entry price →
-          │           vault.reserve(liability) → collect premium → mint
+          │           vault.reserve(liability) → collect premium → record
           └ settle(): after expiry → oracle settlement price →
                       vault.settlePayout(note) → transfer payout or release
 SherwoodVault: deposits, reserved collateral, capacity checks, payouts
-AssetRegistry: token → {feed, staleness, active}
+AssetRegistry: token → {feed, staleness, active}, owner-gated
 ProtectionOracle: AggregatorV3 wrapper, freshness + sanity validation
 ProtectionMath: pure payout/premium/conversion functions
 ```
@@ -83,14 +83,18 @@ Holds settlement token. Tracks `totalDeposits` (deposits + received premiums) an
 - `reserveFor(payer, premium, liability)` — **capacity check first**: `reserved + liability ≤ totalDeposits − buffer`; then pull premium from payer (`totalDeposits += premium`), `reserved += liability`. Called only by ProtectionNote.
 - `settlePayout(recipient, liability, payout)` — transfer `payout` to recipient, `reserved −= liability`. Called only by ProtectionNote. `payout ≤ liability` must hold (math guarantees: payout = floor − current ≤ floor = liability).
 - `availableCapacity()` view — `min(totalDeposits − buffer − reserved)` clamped at 0
-- Owner: `setBufferBps`, `setPendingNote`/authorization of the note contract
+- Owner: `setBufferBps`, `setNoteContract` (authorization of the note contract), `withdrawSurplus` (unencumbered funds only)
 
-### ProtectionNote.sol (ERC721)
-Note data struct: `asset, amount18, entryPrice8, level18, expiry, premiumUSD18, protectedUSD18, liabilityToken, status`. tokenId = noteId, minted to buyer. Terms immutable after creation.
+### ProtectionNote.sol (plain struct registry, not a token)
+Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premiumUSD18, protectedUSD18, liabilityToken, status`. `noteId` starts at 1 and increments; `notes(noteId)` is a public mapping. Terms immutable after creation.
 
-- `create(asset, amount, level, duration)` — full flow above; validates: asset active, amount > 0, supported level/duration, caller holds enough stock token? (No — protection doesn't require holding the token; it pays out on price delta. Keep it a cash-settled instrument.)
-- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, calls vault, sets SETTLED.
+**Notes are deliberately non-transferable.** Protection is priced for the buyer, so `settle()` always pays the recorded `owner`. This removes the entire ERC-721 surface (approvals, receiver hooks, transfer reentrancy) with no product loss — there is no secondary-market requirement in V1. If transferability ever becomes a real requirement, it is an explicit V2 decision, not an accident of the token standard.
+
+- `create(asset, amount, level, duration)` — full flow above; validates: asset active, amount > 0, supported level/duration. Caller holds enough stock token? (No — protection doesn't require holding the token; it pays out on price delta. Keep it a cash-settled instrument.)
+- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, pays the recorded owner via the vault, sets SETTLED.
+- `quote(asset, amount, level, duration)` — live on-chain quote (premium, floor, expiry) so the UI never recomputes rates or prices client-side.
 - `calculatePayout(note, settlementPrice8)` — pure, spec formula.
+- `isSettlable(noteId)` — derived view: exists + ACTIVE + past expiry.
 - Status: `ACTIVE → SETTLED` (payout can be zero; a SETTLABLE state is derivable from expiry, not stored).
 
 ### AssetRegistry.sol
@@ -106,7 +110,7 @@ Note data struct: `asset, amount18, entryPrice8, level18, expiry, premiumUSD18, 
 `usdValue`, `protectedValue`, `payout`, `premium`, `toTokenUnits`, `rateBps`. Every formula above lives here — nothing inline elsewhere.
 
 ### Minimal vendored interfaces (zero external deps)
-`IERC20`, `IERC721Receiver`, `IAggregatorV3`, and a lean self-contained `ERC721` (ownerOf/balanceOf/approve/setApprovalForAll/transferFrom/safeTransferFrom, events, no enumeration/metadata). Rationale: no submodules → `forge build` never depends on network (flaky connectivity).
+`IERC20` and `IAggregatorV3`. Rationale: no submodules → `forge build` never depends on network (flaky connectivity).
 
 ---
 
@@ -134,17 +138,18 @@ Every state transition emits. Settlement always emits `NoteSettled` with the exa
 
 ## 7. Chain Configuration
 
-`script/Config.s.sol` maps chainId → config; `RPC_URL`/env overrides for unknown chains (e.g. Robinhood testnet chain ID to be confirmed at first deploy).
+`script/Config.s.sol` maps chainId → config. Sherwood targets **Robinhood Chain only**; facts below verified against docs.robinhood.com/chain (September 2026).
 
-| Chain | chainId | Settlement token | Feeds |
+| Network | chainId | Settlement token | Feeds |
 |---|---|---|---|
-| Arbitrum One | 42161 | USDC (0xaf88…) 6 dec | Chainlink equity feeds (TSLA/AMZN/NFLX/PLTR/AMD) — verify addresses at deploy |
-| Arbitrum Sepolia | 421614 | test USDC (faucet.circle.com) | mock feeds if real ones absent |
-| Robinhood Chain testnet | TBD (read from RPC) | USDG (TBD — verify official address) | TBD — verify available feeds; if absent, register mock feed for demo only and disclose |
+| Robinhood Chain mainnet | 4663 | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (canonical, per docs) | Chainlink tokenized-equity feeds per stock token — read addresses from docs.chain.link at deploy, never hardcode |
+| Robinhood Chain testnet | 46630 | USDG — address not published yet; resolve `SETTLEMENT_TOKEN` from env, verify on explorer.testnet.chain.robinhood.com first | feed availability unconfirmed on testnet; if absent, register demo feeds and disclose |
 
-**Stock token addresses** are registered per chain in AssetRegistry at deploy — the protocol is asset-agnostic; whatever tokenized-stock contracts exist on the chain (or demo ERC20s on testnet) get registered with their feed.
+Oracle facts: feeds use standard `AggregatorV3.latestRoundData()`; USD feeds are 8 decimals; updates run 24/5 with **no heartbeats off-hours** — so `maxStaleness` per asset (default 72h, owner-capped at 7 days) is the primary guard, and outage-frozen prices are rejected naturally. Robinhood docs also recommend an L2 sequencer-uptime check before trusting prices; that integration is a known V2 item, covered today by the staleness guard.
 
-Verification sequence: `forge build` (no warnings) → `forge test` (100%) → deploy both chains → record addresses in `deploy/deployments.json`.
+**Stock token addresses** are registered per network in AssetRegistry at deploy via `TOKEN_<SYMBOL>` / `FEED_<SYMBOL>` env — the protocol is asset-agnostic; whatever tokenized-stock contracts exist on the chain get registered with their feed.
+
+Verification sequence: `forge build` → `forge test` (100%) → deploy to Robinhood Chain testnet → record addresses in `deploy/deployments.json`.
 
 ---
 
@@ -154,4 +159,4 @@ Next.js App Router + wagmi/viem + Tailwind v4 with the DESIGN.md midnight theme 
 
 Pages: **Dashboard** (holdings + active notes + vault stats), **Protect** (create-note flow with live quote: premium, floor, max payout, expiry), **Notes** (list + settle button when expired + settlement receipts), **Vault** (collateral, reserved, capacity utilization).
 
-All reads/writes go through wagmi hooks to deployed addresses; no price data outside Chainlink-onchain. Chain switcher covers Arbitrum One / Arbitrum Sepolia / Robinhood testnet.
+All reads/writes go through wagmi hooks to deployed addresses; no price data outside Chainlink-onchain. The app runs on Robinhood Chain testnet (single-chain; chain defined in `frontend/lib/chain.ts`, id 46630).
