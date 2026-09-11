@@ -6,6 +6,12 @@ broadcast/
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
+
+# Agent harness state
+.agents/
+.claude/
+skills-lock.json
 
 # Env & secrets
 .env

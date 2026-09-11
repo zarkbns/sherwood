@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --color-midnight-canvas: #000814;
+  --color-deep-surface: #010d1e;
+  --color-indigo-surface: #001533;
+  --color-cobalt-surface: #00215e;
+  --color-paper-white: #ffffff;
+  --color-fog: #ccced0;
+  --color-mist: #999ca1;
+  --color-steel-border: #11263b;
+  --color-signal-blue: #1c6cff;
+}
+
+@theme inline {
+  --color-canvas: var(--color-midnight-canvas);
+  --color-surface: var(--color-deep-surface);
+  --color-surface-2: var(--color-indigo-surface);
+  --color-surface-3: var(--color-cobalt-surface);
+  --color-ink: var(--color-paper-white);
+  --color-fog: var(--color-fog);
+  --color-mist: var(--color-mist);
+  --color-line: var(--color-steel-border);
+  --color-action: var(--color-signal-blue);
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-midnight-canvas);
+  color: var(--color-paper-white);
+  font-weight: 100;
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.inset-card {
+  background: var(--color-deep-surface);
+  border: 1px solid var(--color-steel-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 -8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.btn-action {
+  background: var(--color-signal-blue);
+  color: #fff;
+  font-weight: 400;
+}
+.btn-action:hover {
+  background: #3d80ff;
+}
+.btn-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
