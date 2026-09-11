@@ -73,6 +73,13 @@ contract AssetRegistryTest is TestBase {
         registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
     }
 
+    function test_SetAssetActive_RevertsWhenNotOwner() public {
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
+        vmPrank(vmMakeAddr("attacker"));
+        vmExpectRevert(Ownable.Unauthorized.selector);
+        registry.setAssetActive(tsLA, false);
+    }
+
     function test_SetAssetActive_DisablesNewNotesButKeepsRegistration() public {
         registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
 
@@ -99,6 +106,13 @@ contract AssetRegistryTest is TestBase {
         MockAggregator newFeed = new MockAggregator(8);
         registry.setAssetFeed(tsLA, IAggregatorV3(address(newFeed)));
         assertEq(address(registry.getAsset(tsLA).feed), address(newFeed), "feed not rotated");
+    }
+
+    function test_SetAssetFeed_RevertsWhenNotOwner() public {
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
+        vmPrank(vmMakeAddr("attacker"));
+        vmExpectRevert(Ownable.Unauthorized.selector);
+        registry.setAssetFeed(tsLA, IAggregatorV3(address(feed)));
     }
 
     function test_SetAssetFeed_RevertsOnUnregistered() public {
