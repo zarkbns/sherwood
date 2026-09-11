@@ -5,8 +5,8 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
 
 /// @title Mocks
-/// @notice Test doubles for the settlement token, Chainlink feed, and a receiver
-///         that accepts ERC721 transfers. Kept deliberately dumb.
+/// @notice Test doubles for the settlement token and the Chainlink feed. Kept
+///         deliberately dumb.
 
 contract MockERC20 is IERC20 {
     string public name;
@@ -98,19 +98,5 @@ contract MockAggregator is IAggregatorV3 {
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
         return (_roundId, _answer, _updatedAt, _updatedAt, _answeredInRound);
-    }
-}
-
-contract MockERC721Receiver {
-    bytes4 public constant RECEIVED = 0x150b7a02;
-
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
-        return RECEIVED;
-    }
-}
-
-contract MockWrongReceiver {
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
-        return 0xdeadbeef;
     }
 }

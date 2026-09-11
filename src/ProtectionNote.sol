@@ -1,25 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ERC721} from "./ERC721.sol";
 import {AssetRegistry} from "./AssetRegistry.sol";
 import {ProtectionOracle} from "./ProtectionOracle.sol";
 import {ProtectionMath} from "./ProtectionMath.sol";
 import {SherwoodVault} from "./SherwoodVault.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title ProtectionNote
-/// @notice Cash-settled downside protection. Each note is an ERC721 that fixes
-///         asset, amount, entry price, floor level, and expiry at creation.
-///         Settling reads the Chainlink settlement price and pays
-///         max(0, floor - current) from the vault; the owner keeps all upside.
-contract ProtectionNote is ERC721 {
+/// @notice Cash-settled downside protection. Each note is a plain struct addressed by
+///         noteId that fixes asset, amount, entry price, floor level, and expiry at
+///         creation. Notes are deliberately not transferable: protection is priced for
+///         the buyer, so it stays with them. Settling reads the Chainlink settlement
+///         price and pays max(0, floor - current) from the vault; the buyer keeps all
+///         upside.
+contract ProtectionNote {
     enum Status {
         ACTIVE,
         SETTLED
     }
 
     struct Note {
+        address owner; // buyer, fixed at creation
         address asset;
         uint256 amount; // stock token units, 18 dec
         uint256 entryPrice; // USD, 8 dec, Chainlink at creation
@@ -59,17 +60,16 @@ contract ProtectionNote is ERC721 {
     error NotExpired();
     error AlreadySettled();
 
-    constructor(AssetRegistry _registry, ProtectionOracle _oracle, SherwoodVault _vault)
-        ERC721("Sherwood Protection Note", "SPN")
-    {
+    constructor(AssetRegistry _registry, ProtectionOracle _oracle, SherwoodVault _vault) {
         registry = _registry;
         oracle = _oracle;
         vault = _vault;
     }
 
     /// @notice Buy protection: reads the verified entry price, checks vault capacity,
-    ///         collects the premium and reserves collateral atomically, then mints.
-    ///         Holding the stock token is not required — the instrument is cash-settled.
+    ///         collects the premium and reserves collateral atomically, then records
+    ///         the note. Holding the stock token is not required — the instrument is
+    ///         cash-settled.
     function create(address asset, uint256 amount, uint256 level, uint256 duration)
         external
         returns (uint256 noteId)
@@ -98,14 +98,14 @@ contract ProtectionNote is ERC721 {
         // before the note exists. If anything reverts, nothing is collected.
         vault.reserveFor(noteId, msg.sender, premiumToken, liabilityToken);
         nextId = noteId;
-        _mint(msg.sender, noteId);
 
-        _record(noteId, asset, amount, price8, level, duration, premiumUSD18, protectedUSD18, liabilityToken);
+        _record(noteId, msg.sender, asset, amount, price8, level, duration, premiumUSD18, protectedUSD18, liabilityToken);
     }
 
     /// @dev Separate frame keeps `create` under the stack limit without via-ir.
     function _record(
         uint256 noteId,
+        address owner,
         address asset,
         uint256 amount,
         uint256 price8,
@@ -117,6 +117,7 @@ contract ProtectionNote is ERC721 {
     ) private {
         uint256 expiry = block.timestamp + duration;
         notes[noteId] = Note({
+            owner: owner,
             asset: asset,
             amount: amount,
             entryPrice: price8,
@@ -128,11 +129,12 @@ contract ProtectionNote is ERC721 {
             status: Status.ACTIVE
         });
 
-        emit NoteCreated(noteId, msg.sender, asset, amount, price8, level, expiry, premiumUSD18, protectedUSD18, liabilityToken);
+        emit NoteCreated(noteId, owner, asset, amount, price8, level, expiry, premiumUSD18, protectedUSD18, liabilityToken);
     }
 
-    /// @notice Settle an expired note. Permissionless. The payout goes to the current
-    ///         note owner, so protection transfers with the note.
+    /// @notice Settle an expired note. Permissionless. The payout goes to the buyer
+    ///         recorded at creation — notes are not transferable, so protection always
+    ///         settles to the account that bought it.
     function settle(uint256 noteId) external {
         Note storage note = notes[noteId];
         if (noteId == 0 || noteId > nextId) revert NoteNotFound();
@@ -145,7 +147,7 @@ contract ProtectionNote is ERC721 {
         uint256 payoutUSD18 = ProtectionMath.payout(note.amount, note.entryPrice, note.level, settlementPrice8);
         uint256 payoutToken = ProtectionMath.toTokenUnits(payoutUSD18, vault.token().decimals());
 
-        address recipient = ownerOf(noteId);
+        address recipient = note.owner;
         note.status = Status.SETTLED;
         vault.settlePayout(noteId, recipient, note.liabilityToken, payoutToken);
 

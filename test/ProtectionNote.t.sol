@@ -101,14 +101,14 @@ contract ProtectionNoteTest is NoteFixture {
     // create
     // ------------------------------------------------------------------
 
-    function test_Create_MintsNoteWithSpecTerms() public {
+    function test_Create_StoresNoteWithSpecTerms() public {
         uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
 
         assertEq(id, 1, "first note id");
-        assertEq(note.ownerOf(id), buyer, "buyer should own note");
         assertEq(note.nextId(), 1, "counter should advance");
 
         (
+            address owner,
             address asset,
             uint256 amount,
             uint256 entryPrice,
@@ -120,6 +120,7 @@ contract ProtectionNoteTest is NoteFixture {
             ProtectionNote.Status status
         ) = note.notes(id);
 
+        assertEq(owner, buyer, "buyer should own the note");
         assertEq(asset, tsla, "asset mismatch");
         assertEq(amount, AMOUNT_5, "amount mismatch");
         assertEq(entryPrice, ENTRY_100, "entry price mismatch");
@@ -145,7 +146,7 @@ contract ProtectionNoteTest is NoteFixture {
         uint256 second = _buy(buyer, AMOUNT_5, LEVEL_70, DUR_14D);
         assertEq(first, 1, "first id");
         assertEq(second, 2, "second id");
-        assertEq(note.balanceOf(buyer), 2, "buyer holds two notes");
+        assertEq(note.nextId(), 2, "counter should advance per note");
     }
 
     function test_Create_EmitsNoteCreated() public {
@@ -228,7 +229,7 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(vault.totalDeposits(), 912.5e18, "payout leaves deposits");
         assertEq(settlement.balanceOf(address(vault)), 912.5e18, "vault balance tracks deposits");
 
-        (, , , , , , , , ProtectionNote.Status status) = note.notes(id);
+        (, , , , , , , , , ProtectionNote.Status status) = note.notes(id);
         assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "note should be SETTLED");
     }
 
@@ -253,18 +254,14 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(settlement.balanceOf(buyer), buyerBefore, "floor boundary pays nothing");
     }
 
-    function test_Settle_PaysCurrentOwnerAfterTransfer() public {
+    function test_Settle_PaysTheBuyer() public {
         uint256 id = _buySpecAndExpire();
 
-        vmStartPrank(buyer);
-        note.transferFrom(buyer, trader, id);
-        vmStopPrank();
-
         feed.setPrice(60e8);
-        uint256 traderBefore = settlement.balanceOf(trader);
+        uint256 buyerBefore = settlement.balanceOf(buyer);
         note.settle(id);
 
-        assertEq(settlement.balanceOf(trader), traderBefore + 100e18, "payout follows the note");
+        assertEq(settlement.balanceOf(buyer), buyerBefore + 100e18, "payout goes to the buyer");
     }
 
     function test_Settle_IsPermissionless() public {
@@ -355,7 +352,7 @@ contract ProtectionNoteTest is NoteFixture {
         uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
 
         (uint256 premiumUSD18, uint256 protectedUSD18, uint256 expiry) = note.quote(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
-        (, , , , uint256 storedExpiry, uint256 storedPremium, uint256 storedProtected, , ) = note.notes(id);
+        (, , , , , uint256 storedExpiry, uint256 storedPremium, uint256 storedProtected, , ) = note.notes(id);
 
         assertEq(premiumUSD18, storedPremium, "quote premium must match create");
         assertEq(protectedUSD18, storedProtected, "quote floor must match create");
@@ -431,7 +428,7 @@ contract ProtectionNoteUsdcTest is NoteFixture {
         uint256 id = note.create(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
         vmStopPrank();
 
-        (, , , , , uint256 premiumUSD18, uint256 protectedUSD18, uint256 liabilityToken,) = note.notes(id);
+        (, , , , , , uint256 premiumUSD18, uint256 protectedUSD18, uint256 liabilityToken,) = note.notes(id);
         // USD-18 math is unchanged by token decimals
         assertEq(premiumUSD18, 12.5e18, "premium usd");
         assertEq(protectedUSD18, 400e18, "protected usd");
@@ -455,7 +452,7 @@ contract ProtectionNoteUsdcTest is NoteFixture {
         uint256 id = note.create(tsla, 5e18 + 1, LEVEL_80, DUR_7D);
         vmStopPrank();
 
-        (, , , , , , , uint256 liabilityToken,) = note.notes(id);
+        (, , , , , , , , uint256 liabilityToken,) = note.notes(id);
         assertEq(liabilityToken, 400e6, "floor truncates down to whole USDC");
 
         vmWarp(T0 + DUR_7D + 1);
