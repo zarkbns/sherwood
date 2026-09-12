@@ -61,8 +61,8 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 
 ```
 User ──> ProtectionNote (struct registry, noteId-keyed)
-          │ create(): validate asset → read entry price →
-          │           vault.reserve(liability) → collect premium → record
+          │ create(): validate asset → position guard (caller holds the stock) →
+          │           read entry price → vault.reserve(liability) → collect premium → record
           └ settle(): after expiry → oracle settlement price →
                       vault.settlePayout(note) → transfer payout or release
 SherwoodVault: deposits, reserved collateral, capacity checks, payouts
@@ -71,7 +71,7 @@ ProtectionOracle: AggregatorV3 wrapper, freshness + sanity validation
 ProtectionMath: pure payout/premium/conversion functions
 ```
 
-**Flow order is an invariant:** capacity check and collateral reservation happen **before** premium collection. Any revert after reservation rolls back the whole transaction (atomic).
+**Flow order is an invariant:** the position guard and capacity check happen **before** any premium collection or collateral reservation, so a failed create (under-collateralised or a caller who doesn't hold the stock) moves no tokens. Any revert after reservation rolls back the whole transaction (atomic).
 
 ---
 
@@ -91,7 +91,7 @@ Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premium
 
 **Notes are deliberately non-transferable.** Protection is priced for the buyer, so `settle()` always pays the recorded `owner`. This removes the entire ERC-721 surface (approvals, receiver hooks, transfer reentrancy) with no product loss — there is no secondary-market requirement in V1. If transferability ever becomes a real requirement, it is an explicit V2 decision, not an accident of the token standard.
 
-- `create(asset, amount, level, duration)` — full flow above; validates: asset active, amount > 0, supported level/duration. Caller holds enough stock token? (No — protection doesn't require holding the token; it pays out on price delta. Keep it a cash-settled instrument.)
+- `create(asset, amount, level, duration)` — full flow above; validates: asset registered + active, amount > 0, supported level/duration, then **position guard: caller must hold `amount` of the asset token** (`balanceOf(msg.sender) ≥ amount`, else `InsufficientPosition`). The stock is verified, never transferred or custodied — Sherwood protects a position, it doesn't take it. This keeps the product a real downside hedge for tokenized-equity holders, not a naked speculative bet. Settlement remains cash-settled on the price difference.
 - `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, pays the recorded owner via the vault, sets SETTLED.
 - `quote(asset, amount, level, duration)` — live on-chain quote (premium, floor, expiry) so the UI never recomputes rates or prices client-side.
 - `calculatePayout(note, settlementPrice8)` — pure, spec formula.
@@ -119,7 +119,7 @@ Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premium
 
 Events: `NoteCreated(noteId, owner, asset, amount, entryPrice, level, expiry, premium, protectedValue, liability)`, `NoteSettled(noteId, settlementPrice, payout, recipient)`, `Deposited depositor/amount`, `CapacityReserved/Released noteId/liability`, `PayoutExecuted(noteId, to, amount)`, `AssetRegistered(token, feed)`, `AssetStatusChanged(token, active)`, `BufferChanged(bps)`.
 
-Custom errors: `UnsupportedAsset`, `AssetInactive`, `StalePrice`, `InvalidPrice`, `InsufficientCapacity`, `InsufficientVaultBalance`, `NotExpired`, `AlreadySettled`, `InvalidLevel`, `InvalidDuration`, `InvalidAmount`, `Unauthorized`, `TransferFailed`, `BufferTooHigh`.
+Custom errors: `UnsupportedAsset`, `AssetInactive`, `StalePrice`, `InvalidPrice`, `InsufficientCapacity`, `InsufficientVaultBalance`, `InsufficientPosition`, `NotExpired`, `AlreadySettled`, `InvalidLevel`, `InvalidDuration`, `InvalidAmount`, `Unauthorized`, `TransferFailed`, `BufferTooHigh`.
 
 Every state transition emits. Settlement always emits `NoteSettled` with the exact price and payout (auditable trail).
 
@@ -134,6 +134,7 @@ Every state transition emits. Settlement always emits `NoteSettled` with the exa
 5. Capacity is checked before any premium movement.
 6. No user- or owner-supplied price ever reaches settlement math; only oracle-validated prices.
 7. Note terms never mutate after creation; settle is the only transition and only after expiry.
+8. Every note's creator held at least `amount` of the asset at creation (position guard). Enforced at `create`, not re-checked at `settle` — the buyer may sell after purchasing protection; the note still settles to them (an insurance claim, not a transfer).
 
 ---
 

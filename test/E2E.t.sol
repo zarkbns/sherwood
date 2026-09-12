@@ -213,6 +213,7 @@ contract E2ETest is NoteFixture {
         _fundVault(100_000e18);
         _fundBuyer(1e24);
         settlement.mint(trader, 1e24);
+        stock.mint(trader, 1000e18); // buyer must hold the position they protect
         vmStartPrank(trader);
         settlement.approve(address(vault), 1e24);
         vmStopPrank();

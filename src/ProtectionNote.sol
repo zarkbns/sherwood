@@ -5,6 +5,7 @@ import {AssetRegistry} from "./AssetRegistry.sol";
 import {ProtectionOracle} from "./ProtectionOracle.sol";
 import {ProtectionMath} from "./ProtectionMath.sol";
 import {SherwoodVault} from "./SherwoodVault.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title ProtectionNote
 /// @notice Cash-settled downside protection. Each note is a plain struct addressed by
@@ -56,6 +57,7 @@ contract ProtectionNote {
     error UnsupportedAsset();
     error AssetInactive();
     error InvalidAmount();
+    error InsufficientPosition(address asset, uint256 held, uint256 required);
     error NoteNotFound();
     error NotExpired();
     error AlreadySettled();
@@ -68,8 +70,9 @@ contract ProtectionNote {
 
     /// @notice Buy protection: reads the verified entry price, checks vault capacity,
     ///         collects the premium and reserves collateral atomically, then records
-    ///         the note. Holding the stock token is not required — the instrument is
-    ///         cash-settled.
+    ///         the note. The buyer must already hold `amount` of the stock token — this
+    ///         protects a real position, not a naked bet. The stock is never taken into
+    ///         custody; the note is cash-settled against the price difference.
     function create(address asset, uint256 amount, uint256 level, uint256 duration)
         external
         returns (uint256 noteId)
@@ -81,6 +84,16 @@ contract ProtectionNote {
 
         // Reverts on unsupported level/duration before any state changes.
         ProtectionMath.premiumRateBps(level, duration);
+
+        // Position guard: the caller must hold the tokens they are protecting. Checked
+        // before any oracle read, capacity reservation, or premium movement, so a failed
+        // hold collects and reserves nothing. Balance is verified, not transferred — the
+        // buyer keeps their stock and all upside; only the downside is insured.
+        // Scoped so its stack slot is freed before the pricing locals below.
+        {
+            uint256 held = IERC20(asset).balanceOf(msg.sender);
+            if (held < amount) revert InsufficientPosition(asset, held, amount);
+        }
 
         (uint256 price8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
 

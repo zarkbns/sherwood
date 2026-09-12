@@ -13,16 +13,21 @@ import {MockERC20, MockAggregator} from "./Mocks.sol";
 ///      registered against a mock feed stamped at T0, vault funded, buyer funded.
 abstract contract NoteFixture is TestBase {
     MockERC20 internal settlement;
+    MockERC20 internal stock;
     SherwoodVault internal vault;
     AssetRegistry internal registry;
     ProtectionOracle internal oracle;
     MockAggregator internal feed;
     ProtectionNote internal note;
 
-    address internal tsla = vmMakeAddr("TSLA token");
+    // tsla is the registered stock token contract (18 dec). Buyers must hold it to
+    // create a note, so it is a real ERC20, not a bare address.
+    address internal tsla;
     address internal depositor = vmMakeAddr("depositor");
     address internal buyer = vmMakeAddr("buyer");
     address internal trader = vmMakeAddr("trader");
+
+    uint256 internal constant HOLD_STANDING = 10_000e18;
 
     uint256 constant T0 = 1_700_000_000;
     uint256 constant AMOUNT_5 = 5e18;
@@ -38,6 +43,8 @@ abstract contract NoteFixture is TestBase {
     function _deploy(uint8 settlementDecimals) internal {
         vmWarp(T0);
         settlement = new MockERC20("settlement", "STBL", settlementDecimals);
+        stock = new MockERC20("Tesla", "TSLA", 18);
+        tsla = address(stock);
         registry = new AssetRegistry();
         oracle = new ProtectionOracle();
         vault = new SherwoodVault(settlement, 2000);
@@ -59,6 +66,7 @@ abstract contract NoteFixture is TestBase {
 
     function _fundBuyer(uint256 amount) internal {
         settlement.mint(buyer, amount);
+        stock.mint(buyer, HOLD_STANDING);
         vmStartPrank(buyer);
         settlement.approve(address(vault), amount);
         vmStopPrank();
@@ -216,6 +224,21 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(settlement.balanceOf(buyer), 1e24, "buyer untouched");
         assertEq(vault.reserved(), 0, "nothing reserved");
         assertEq(note.nextId(), 0, "no note counted");
+    }
+
+    function test_Create_RevertsOnInsufficientPosition_NothingCollected() public {
+        // Buyer holds HOLD_STANDING (10_000 TSLA); protecting more than held is a
+        // naked bet, rejected before any oracle read, reservation, or premium move.
+        assertEq(stock.balanceOf(buyer), HOLD_STANDING, "standing position");
+        uint256 required = HOLD_STANDING + 1e18;
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.InsufficientPosition.selector, tsla, HOLD_STANDING, required));
+        vmPrank(buyer);
+        note.create(tsla, required, LEVEL_80, DUR_7D);
+
+        assertEq(settlement.balanceOf(buyer), 1e24, "premium not collected on failed hold");
+        assertEq(vault.reserved(), 0, "nothing reserved on failed hold");
+        assertEq(note.nextId(), 0, "no note counted on failed hold");
     }
 
     // ------------------------------------------------------------------
@@ -401,6 +424,7 @@ contract ProtectionNoteTest is NoteFixture {
         // Capacity needs usable >= premium + liability: deposit 1.25x with headroom
         _fundVault(((premiumToken + liabilityToken) * 5) / 4 + 1);
         _fundBuyer(premiumToken);
+        stock.mint(buyer, amount); // buyer must hold the protected position
         feed.setPrice(int256(entry)); // oracle must quote the seeded entry price
 
         vmStartPrank(buyer);

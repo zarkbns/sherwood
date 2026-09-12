@@ -52,11 +52,11 @@ A Protection Note is an immutable on-chain record — a plain struct addressed b
 - **Amount:** How many tokens to protect
 - **Entry Price:** Verified Chainlink price at creation time
 - **Protection Level:** 70%, 80%, or 90% floor
-- **Duration:** 7, 14, or 30 days
+- **Duration:** 1, 7, 14, or 30 days
 - **Premium:** Paid upfront in USDG
 - **Status:** ACTIVE → SETTLED (with or without payout)
 
-Once created, terms are immutable. No modifications, no surprises. Holding the stock token is not required — the instrument is cash-settled on the price difference.
+Once created, terms are immutable. No modifications, no surprises. To buy protection you must **hold the stock token you're protecting** — Sherwood insures a real position, it isn't a naked bet. The token is never taken into custody: you keep the shares and all the upside, and only the downside is settled in USDG against the price difference.
 
 ### Protection Levels
 
@@ -112,7 +112,7 @@ Protection Notes settle using verified price data from Chainlink:
 3. Vault executes USDG transfer (or zero if price stayed above floor)
 4. Note status → SETTLED
 
-Prices are never user-supplied. Prices are never stale. Prices are always from Chainlink.
+Prices are never user-supplied — they always come from Chainlink. A stale price is not silently used: the oracle checks each feed's round freshness and **reverts** if it's too old, so settlement simply waits for a fresh round rather than settling on frozen data. No contract can promise a price source is never stale; Sherwood guarantees it never *acts* on a stale one.
 
 ---
 
@@ -360,7 +360,6 @@ ACTIVE (waiting for expiry)
 
 **Phase 2 (Improvements) — If Time**
 - Multiple coverage tiers (configurable per asset)
-- Multiple durations (7, 14, 30 days, etc.)
 - Vault analytics dashboard (utilization, reserves, active liability)
 - Protection provider deposits (for liquidity)
 - Risk monitoring and capacity alerts
