@@ -94,6 +94,15 @@ export const noteAbi = [
     ],
   },
   {
+    type: "error",
+    name: "InsufficientPosition",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "held", type: "uint256" },
+      { name: "required", type: "uint256" },
+    ],
+  },
+  {
     type: "event",
     name: "NoteCreated",
     inputs: [

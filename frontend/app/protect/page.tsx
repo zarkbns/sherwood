@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useAccount, useChainId, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { formatUnits } from "viem";
 import { Header } from "@/components/Header";
 import { Empty, TxStatus } from "@/components/ui";
 import { useDeployed, useAssets, settlementTokenFor, parseTokenAmount, usd18ToToken } from "@/lib/protocol";
 import { noteAbi, erc20Abi } from "@/lib/abis";
-import { fmtUsd18, fmtPrice, fmtExpiry } from "@/lib/format";
+import { fmtUsd18, fmtPrice, fmtExpiry, fmtToken } from "@/lib/format";
 
 const LEVELS = [
   { label: "70%", value: 70n * 10n ** 16n },
@@ -15,6 +16,7 @@ const LEVELS = [
 ];
 
 const DURATIONS = [
+  { label: "1 day", value: 24n * 60n * 60n },
   { label: "7 days", value: 7n * 24n * 60n * 60n },
   { label: "14 days", value: 14n * 24n * 60n * 60n },
   { label: "30 days", value: 30n * 24n * 60n * 60n },
@@ -34,6 +36,12 @@ export default function Protect() {
 
   const selected = assets.find((a) => a.token === asset);
   const amountWei = selected ? parseTokenAmount(amount, selected.decimals) : 0n;
+
+  // Position guard mirrored from the contract: create() reverts InsufficientPosition
+  // unless the caller holds the protected amount. Block it in the UI, don't mint reverts.
+  const held = selected?.balance;
+  const holdsEnough = held === undefined || held >= amountWei;
+  const overPosition = amountWei > 0n && held !== undefined && held < amountWei;
 
   // Live quote is read from the chain — the UI never prices anything itself.
   // The quote result is a tuple in ABI output order: [premiumUSD18, protectedUSD18, expiry].
@@ -61,7 +69,7 @@ export default function Protect() {
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
 
   const needsApproval = quote && allowance !== undefined && allowance < premiumToken;
-  const canCreate = isConnected && !!deployed && !!quote && !needsApproval && !isPending && !receipt.isLoading;
+  const canCreate = isConnected && !!deployed && !!quote && holdsEnough && !needsApproval && !isPending && !receipt.isLoading;
   const canApprove = isConnected && !!deployed && !!quote && !!needsApproval && !isPending && !receipt.isLoading;
 
   function approve() {
@@ -84,14 +92,19 @@ export default function Protect() {
     });
   }
 
+  const failReason = error
+    ? /InsufficientPosition/.test(`${error.message} ${(error as { shortMessage?: string }).shortMessage ?? ""}`)
+      ? "you must hold the stock you are protecting — reduce the amount"
+      : error.message.slice(0, 120)
+    : null;
   const state = isPending
     ? "Confirm in wallet…"
     : receipt.isLoading
       ? "Waiting for confirmation…"
       : receipt.isSuccess
         ? "Protection Note created — see Notes."
-        : error
-          ? `Failed: ${error.message.slice(0, 120)}`
+        : failReason
+          ? `Failed: ${failReason}`
           : null;
 
   return (
@@ -132,7 +145,18 @@ export default function Protect() {
                 </div>
 
                 <div>
-                  <label className="text-xs uppercase tracking-widest text-mist">Amount ({selected?.symbol ?? "tokens"})</label>
+                  <div className="flex items-baseline justify-between">
+                    <label className="text-xs uppercase tracking-widest text-mist">Amount ({selected?.symbol ?? "tokens"})</label>
+                    {selected && held !== undefined ? (
+                      <button
+                        type="button"
+                        onClick={() => setAmount(formatUnits(held, selected.decimals))}
+                        className="text-xs text-action hover:underline"
+                      >
+                        Protect max
+                      </button>
+                    ) : null}
+                  </div>
                   <input
                     className="mt-2 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none"
                     placeholder="0.00"
@@ -140,6 +164,15 @@ export default function Protect() {
                     onChange={(e) => setAmount(e.target.value)}
                     inputMode="decimal"
                   />
+                  {selected ? (
+                    <p className={`mt-2 text-xs ${overPosition ? "text-fog" : "text-mist"}`}>
+                      {held === undefined
+                        ? "Connect a wallet to see your position."
+                        : overPosition
+                          ? `Position guard: you hold ${fmtToken(held, selected.decimals, selected.symbol)} — the contract rejects protecting more.`
+                          : `You hold ${fmtToken(held, selected.decimals, selected.symbol)} — protection never leaves your wallet.`}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -159,7 +192,7 @@ export default function Protect() {
 
                 <div>
                   <label className="text-xs uppercase tracking-widest text-mist">Duration</label>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {DURATIONS.map((d) => (
                       <button
                         key={d.label}
@@ -195,7 +228,7 @@ export default function Protect() {
                     </button>
                   ) : null}
                   <button onClick={create} disabled={!canCreate} className="btn-action w-full rounded-xl px-4 py-3 text-sm">
-                    {needsApproval ? "Approval required first" : "Buy Protection Note"}
+                    {needsApproval ? "Approval required first" : overPosition ? "Exceeds your position" : "Buy Protection Note"}
                   </button>
                   <TxStatus state={state} />
                 </div>
