@@ -43,6 +43,7 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 | Tier 70% | +100 bps |
 | Tier 80% | +100 bps |
 | Tier 90% | +200 bps |
+| Duration 1d | +25 bps |
 | Duration 7d | +50 bps |
 | Duration 14d | +75 bps |
 | Duration 30d | +100 bps |
@@ -50,7 +51,7 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 ### Fixed terms
 
 - **Levels:** 70, 80, 90 (% × 1e16 as level18)
-- **Durations:** 7, 14, 30 days
+- **Durations:** 1, 7, 14, 30 days
 - **Vault reserve buffer:** 2000 bps (20%) — configurable by owner, cap 5000 bps
 - **Oracle max staleness:** 72 h default (covers weekend equity-market closure) — configurable per registry entry, owner-capped at 7 days
 

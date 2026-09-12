@@ -31,6 +31,7 @@ abstract contract NoteFixture is TestBase {
     uint256 constant LEVEL_80 = 80e16;
     uint256 constant LEVEL_90 = 90e16;
     uint256 constant DUR_7D = 7 days;
+    uint256 constant DUR_1D = 1 days;
     uint256 constant DUR_14D = 14 days;
     uint256 constant DUR_30D = 30 days;
 
@@ -130,6 +131,15 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(protectedUSD18, 400e18, "protected value mismatch");
         assertEq(liabilityToken, 400e18, "liability mismatch");
         assertEq(uint8(status), uint8(ProtectionNote.Status.ACTIVE), "status mismatch");
+    }
+
+    function test_Create_SupportsOneDayDuration() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D);
+
+        (, , , , , uint256 expiry, uint256 premiumUSD18, , , ) = note.notes(id);
+        assertEq(expiry, T0 + DUR_1D, "1-day expiry mismatch");
+        // 500e18 position value at 225 bps (base 100 + tier 100 + duration 25)
+        assertEq(premiumUSD18, 11.25e18, "1-day premium mismatch");
     }
 
     function test_Create_CollectsPremiumAndReservesLiability() public {

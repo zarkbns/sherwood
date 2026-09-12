@@ -167,7 +167,10 @@ contract ProtectionMathTest is TestBase {
     }
 
     function test_PremiumRate_AllTierDurationCombos() public {
-        // base 100 + tier {70:100, 80:100, 90:200} + duration {7:50, 14:75, 30:100}
+        // base 100 + tier {70:100, 80:100, 90:200} + duration {1:25, 7:50, 14:75, 30:100}
+        assertEq(ProtectionMath.premiumRateBps(70e16, 1 days), 225, "70/1 wrong");
+        assertEq(ProtectionMath.premiumRateBps(80e16, 1 days), 225, "80/1 wrong");
+        assertEq(ProtectionMath.premiumRateBps(90e16, 1 days), 325, "90/1 wrong");
         assertEq(ProtectionMath.premiumRateBps(70e16, 7 days), 250, "70/7 wrong");
         assertEq(ProtectionMath.premiumRateBps(70e16, 14 days), 275, "70/14 wrong");
         assertEq(ProtectionMath.premiumRateBps(70e16, 30 days), 300, "70/30 wrong");

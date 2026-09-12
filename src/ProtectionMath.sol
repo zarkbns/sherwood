@@ -50,6 +50,7 @@ library ProtectionMath {
     }
 
     function durationBps(uint256 duration) internal pure returns (uint256) {
+        if (duration == 1 days) return 25;
         if (duration == 7 days) return 50;
         if (duration == 14 days) return 75;
         if (duration == 30 days) return 100;
