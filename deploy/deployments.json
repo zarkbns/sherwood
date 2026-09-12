@@ -3,21 +3,21 @@
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
-  "deploymentVersion": 2,
+  "deploymentVersion": 3,
   "deployedAt": "2026-09-12",
   "contracts": {
-    "registry": "0x0c1A84acF8bC140eB34a112447Eb285D6517FbD7",
-    "oracle": "0xc7e0F2acEA89C0E7A4633fE334c924B7E168524a",
-    "vault": "0x5e579fA1b2F8fD7d8451efd5b4BDDeddf2480641",
-    "note": "0xa9A30b739CAeF638c96703f2894b45B8F15F0379"
+    "registry": "0x41e7bc706D7aBF76Dbe72d50240F9f6AF151088d",
+    "oracle": "0x2B079894ADab3e806B37A6a0Bd0F33338CDbCED9",
+    "vault": "0x491ccb7F76632b7812D2A8d0d48Eec0292c41c70",
+    "note": "0x9FE9bb09cA3777AaffC7C20084c10CB1C2D419E0"
   },
   "deployTxHashes": {
-    "AssetRegistry": "0xf899261d2e517e327a61dea669d9b1124cd2192d13479a4723b20ccb47f65af6",
-    "ProtectionOracle": "0x601c5be9e6d91f965ec62feab9506b9c2150e043a6c93de1a52ddf26a5f91b77",
-    "SherwoodVault": "0x73410250dcab35cbf66756f3cb423b83ba9782be0d84278dac6dd19985299c95",
-    "ProtectionNote": "0x7ba3123d0eb9015275d9cd294794c17e91188a6ba34a6709ddc7d4ad3e20637b",
-    "setNoteContract": "0x156c4978fad64ed85040a419aa8dc27bca5cc45aa7b4da4a5db5b02910b0e942",
-    "registerAssetTSLA": "0x47b091ed831c9ca0b9a8fc595b12e905fbf2a18e2f6b50b38ca790b2178d8115"
+    "AssetRegistry": "0x04a733c3a9c930338d807fd4f20b58c55b8978fb39132b94587884aa38f103bb",
+    "ProtectionOracle": "0xf3e0f726e116380dd3ed110c0ab70bc31506dbc8de1fbdb5a959e870bbce3821",
+    "SherwoodVault": "0xaf8e3145194ab386ca535852fc833fd37e83ab3d63ff0e04e73072a2c4bd5876",
+    "ProtectionNote": "0xb4a0d69173aed048bfb018e54e271c2349c1081b734bc81853a9ba6f9b3f1dca",
+    "setNoteContract": "0xc3b73e3d88b34aa6e24806339216ba765869ec5438c7f069003c5a949dcc87a5",
+    "registerAssetTSLA": "0xd2884ac73bbf6d353e914a8b6209c69ff0486d60c77efc4281ad73ef99523679"
   },
   "settlementToken": {
     "symbol": "USDG",
@@ -37,16 +37,18 @@
     "NFLX": "0x0bA3E299EE7548A3F56f1cbaA4A88B48b798dC7b",
     "PLTR": "0xFcB760a8A2B1580048962805D20BDc053bE2b925",
     "AMD": "0x01575CF43Ad4AdB6E49a3f45876475F3FB59f346",
-    "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry."
+    "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry. Feeds persist across v2/v3 redeploys."
   },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
   },
-  "verification": "All four protocol contracts source-verified on the explorer (forge verify-contract via Blockscout, constructor args included).",
+  "verification": "All four v3 protocol contracts source-verified on the explorer (forge verify-contract via Blockscout, constructor args included).",
   "notes": [
-    "v2 redeployed after adding the 1-day protection tier (ProtectionMath is compiled into ProtectionNote; immutable, so a redeploy was required). v1 (registry 0xe1cF...7A6) is abandoned with zero funds and superseded.",
-    "Live read-path proof 2026-09-12: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — exact match to the spec formula at the DemoFeed price of $250.",
-    "On-chain write path pending testnet USDG in the deployer wallet: run script/DemoCreate.s.sol, then script/DemoSettle.s.sol after the 24h expiry."
+    "v3 redeployed to activate the create() position guard (buyer must hold the protected stock; commit ebb997b). v1/v2 are abandoned with zero funds and superseded.",
+    "Position guard proven on-chain by simulation 2026-09-12: eth_call create() from a zero-TSLA address reverts InsufficientPosition(asset, held=0, required=1e18) with fully decoded custom error data; callers holding official TSLA pass the guard and fail later at the empty-vault capacity check (InsufficientCapacity) — order verified.",
+    "Deployer wallet holds 15 official TSLA (plus AMZN/NFLX/PLTR/AMD from the testnet stock faucet), so the demo create satisfies the position guard with a real position.",
+    "Live read-path proof: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — exact match to the spec formula at the DemoFeed price of $250.",
+    "On-chain write path pending testnet USDG in the deployer wallet (official faucet claims not landing; escalated to Robinhood dev support): run script/DemoCreate.s.sol, then script/DemoSettle.s.sol after the 24h expiry."
   ]
 }
