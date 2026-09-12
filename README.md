@@ -195,6 +195,7 @@ These were verified against official docs (September 2026):
 
 **Open items — verify at deploy time, not assumed:**
 - **Chainlink feed availability on testnet** — Chainlink's tokenized-equity feed list currently covers Robinhood Chain mainnet; if testnet lacks feeds, register demo feeds and disclose it.
+- **Stock Token API (`/rhj/assets`, `/rhj/prices/{SYM}`)** — investigated 2026-09-12 as a settlement source, **not integrated**: official and public (HTTP 200, no auth; 194 assets), but every deployment is mainnet chain 4663 (nothing for testnet), responses are unsigned, and `bid`/`ask` are raw underlying prices — explicitly *not* multiplier-adjusted, unlike the on-chain Chainlink feeds. Feeding it on-chain would require a trusted updater, breaking the invariant that settlement prices are publicly verifiable from chain data. It is a good display-only source (market context, halt status) and a future mainnet registry discovery path.
 - **Feed addresses** — per Chainlink's guidance, never hardcode: read them from the Chainlink Robinhood feeds page at deploy and pass via `FEED_<SYMBOL>` env.
 - **Sequencer uptime** — Robinhood Chain docs recommend an L2 sequencer check before trusting prices; the oracle's freshness guard (default 72h staleness, per-feed capped at 7 days) already rejects outage-frozen prices. A dedicated sequencer-uptime feed integration is a known V2 item.
 
@@ -210,9 +211,12 @@ forge test
 # Deploy to Robinhood Chain testnet
 export RPC_URL=https://rpc.testnet.chain.robinhood.com
 export PRIVATE_KEY=your-testnet-key
-export SETTLEMENT_TOKEN=0x...        # testnet USDG (verify on explorer first)
-export TOKEN_TSLA=0x... FEED_TSLA=0x...   # repeat per asset (AMZN, NFLX, PLTR, AMD)
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast --verify
+export SETTLEMENT_TOKEN=0x7E955252E15c84f5768B83c41a71F9eba181802F   # verified testnet USDG
+export TOKEN_TSLA=0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E FEED_TSLA=0x...   # repeat per asset (AMZN, NFLX, PLTR, AMD)
+forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+# Source verification (Blockscout):
+forge verify-contract --chain-id 46630 --verifier blockscout \
+  --verifier-url https://explorer.testnet.chain.robinhood.com/api <ADDRESS> <SRC>:<CONTRACT> [--constructor-args <abi-encoded>]
 
 # Frontend (SherwoodNotes)
 cd frontend
@@ -226,6 +230,18 @@ Then open http://localhost:3000:
 3. Select asset and create a Protection Note
 4. Monitor on-chain settlement
 5. View payout receipt (if triggered)
+
+### Frontend on Vercel
+
+Deployable with zero configuration — the deployed testnet addresses are built in
+(see `deploy/deployments.json`):
+
+1. Import the repo on Vercel, set **Root Directory** to `frontend` (Next.js is auto-detected)
+2. Deploy — no env vars required
+3. Optional env vars: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (unlocks mobile-wallet QR via WalletConnect; get one free at cloud.walletconnect.com), `NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET` (a rate-limit-free RPC instead of the public one)
+
+All contract addresses fall back to the deployed testnet values and can be
+overridden per environment with `NEXT_PUBLIC_*` without touching code.
 
 ---
 
