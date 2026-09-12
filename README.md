@@ -188,12 +188,13 @@ These were verified against official docs (September 2026):
 | Mainnet explorer | `https://robinhoodchain.blockscout.com` | docs.robinhood.com/chain/connecting |
 | Gas token | ETH | docs.robinhood.com/chain |
 | USDG on mainnet | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | docs.robinhood.com/chain/contracts |
+| USDG on testnet | `0x7E955252E15c84f5768B83c41a71F9eba181802F` | testnet explorer, verified 2026-09-12: ERC-1967 proxy to verified Paxos `contracts/stablecoins/USDG.sol` (`0xF0863D7A29a55d0c4263c11bFac754312ff078DF`); implementation bytecode is byte-identical to the mainnet USDG implementation except self-references and one chain constant |
+| Testnet USDG faucet | 100 USDG per claim, dripped continuously by ops wallet `0xcc9644EC26A647de0B9b86f1560d5180232f70a3`; claim site `https://testnet.robinhoodchain.com` | testnet explorer transfer history, observed live 2026-09-12 |
+| Stock tokens on testnet (18 dec, `BeaconProxy` → verified `Stock` impl) | TSLA `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E`, AMZN `0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02`, NFLX `0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93`, PLTR `0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0`, AMD `0x71178BAc73cBeb415514eB542a8995b82669778d` | testnet explorer token list (same deployer infra as the verified Beacon/`Stock` contracts) |
 | Price feeds | Every Stock Token has a Chainlink feed (`AggregatorV3`, `latestRoundData()`); USD feeds are 8 decimals; updates are 24/5 with no heartbeats off-hours | docs.robinhood.com/chain/oracles-and-price-feeds |
 
 **Open items — verify at deploy time, not assumed:**
-- **USDG address on testnet** — not published in the docs yet; confirm on the testnet explorer and set `SETTLEMENT_TOKEN` for the deploy script (the vault reads `decimals()` on-chain regardless).
 - **Chainlink feed availability on testnet** — Chainlink's tokenized-equity feed list currently covers Robinhood Chain mainnet; if testnet lacks feeds, register demo feeds and disclose it.
-- **Stock token addresses** — read from the live on-chain asset registry / explorer at deploy; the protocol is asset-agnostic and registers whatever tokens exist per chain.
 - **Feed addresses** — per Chainlink's guidance, never hardcode: read them from the Chainlink Robinhood feeds page at deploy and pass via `FEED_<SYMBOL>` env.
 - **Sequencer uptime** — Robinhood Chain docs recommend an L2 sequencer check before trusting prices; the oracle's freshness guard (default 72h staleness, per-feed capped at 7 days) already rejects outage-frozen prices. A dedicated sequencer-uptime feed integration is a known V2 item.
 
