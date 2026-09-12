@@ -13,12 +13,13 @@ export type ProtocolAddresses = {
 };
 
 const deployments: Partial<Record<number, ProtocolAddresses>> = {
-  // Robinhood Chain testnet (46630)
+  // Robinhood Chain testnet (46630) — deployed 2026-09-12, see deploy/deployments.json.
+  // Env overrides win, so a redeployment can be pointed at without a code change.
   46630: {
-    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "") as Address,
-    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "") as Address,
-    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "") as Address,
-    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "") as Address,
+    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0x41e7bc706D7aBF76Dbe72d50240F9f6AF151088d") as Address,
+    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x2B079894ADab3e806B37A6a0Bd0F33338CDbCED9") as Address,
+    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x491ccb7F76632b7812D2A8d0d48Eec0292c41c70") as Address,
+    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0x9FE9bb09cA3777AaffC7C20084c10CB1C2D419E0") as Address,
   },
 };
 
