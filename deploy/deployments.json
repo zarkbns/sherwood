@@ -3,32 +3,50 @@
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
+  "deploymentVersion": 2,
   "deployedAt": "2026-09-12",
-  "deployTxHashes": {
-    "AssetRegistry": "0x0a030fb57986d28e7284328ef4b91d00c2ee9a4340297e7f966ee8ea8a2c6e83",
-    "ProtectionOracle": "0xd7c38a615c5ee338177eb37b32e16261b423ec95699ca64997dfed07f7c14a30",
-    "SherwoodVault": "0x7baf3923d833aad7e39f3cc5c76beb3adfc0f95b06f2f1840074bb03d17eb1ad",
-    "ProtectionNote": "0x99135e2836dcc5fd3cc655b45a25d3c95c7197f289553f37c029a8a164f65878",
-    "setNoteContract": "0xbbd1c94ba3d878a8a5fe9bf65ac900a1f5606c079b0d8066871cb416b5874b9a"
-  },
   "contracts": {
-    "registry": "0xe1cFF635151eB8B6BA3f3C57E02f6F04737be7A6",
-    "oracle": "0x2027B153a574978eaCB5dafFcF6B1a095f906064",
-    "vault": "0x65055DE3bE76e49Ca99eFfE97E59c49dae49bAea",
-    "note": "0xc1aa160A0A3699feB7e79D1796429b1B181E021C"
+    "registry": "0x0c1A84acF8bC140eB34a112447Eb285D6517FbD7",
+    "oracle": "0xc7e0F2acEA89C0E7A4633fE334c924B7E168524a",
+    "vault": "0x5e579fA1b2F8fD7d8451efd5b4BDDeddf2480641",
+    "note": "0xa9A30b739CAeF638c96703f2894b45B8F15F0379"
+  },
+  "deployTxHashes": {
+    "AssetRegistry": "0xf899261d2e517e327a61dea669d9b1124cd2192d13479a4723b20ccb47f65af6",
+    "ProtectionOracle": "0x601c5be9e6d91f965ec62feab9506b9c2150e043a6c93de1a52ddf26a5f91b77",
+    "SherwoodVault": "0x73410250dcab35cbf66756f3cb423b83ba9782be0d84278dac6dd19985299c95",
+    "ProtectionNote": "0x7ba3123d0eb9015275d9cd294794c17e91188a6ba34a6709ddc7d4ad3e20637b",
+    "setNoteContract": "0x156c4978fad64ed85040a419aa8dc27bca5cc45aa7b4da4a5db5b02910b0e942",
+    "registerAssetTSLA": "0x47b091ed831c9ca0b9a8fc595b12e905fbf2a18e2f6b50b38ca790b2178d8115"
   },
   "settlementToken": {
     "symbol": "USDG",
     "address": "0x7E955252E15c84f5768B83c41a71F9eba181802F",
     "decimals": 6
   },
+  "assets": {
+    "TSLA": {
+      "token": "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+      "feed": "0x9b1bE514E2DbAa52FB37b52f65E57885fD5c67D8",
+      "feedType": "DemoFeed — owner-set testnet stand-in; Chainlink publishes no feeds on 46630 (mainnet only). NOT market data. Swap to the real Chainlink feed unchanged when available."
+    }
+  },
+  "demoFeeds": {
+    "TSLA": "0x9b1bE514E2DbAa52FB37b52f65E57885fD5c67D8",
+    "AMZN": "0x001194A4858F324B744EE4C023871AEC4dAB96CB",
+    "NFLX": "0x0bA3E299EE7548A3F56f1cbaA4A88B48b798dC7b",
+    "PLTR": "0xFcB760a8A2B1580048962805D20BDc053bE2b925",
+    "AMD": "0x01575CF43Ad4AdB6E49a3f45876475F3FB59f346",
+    "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry."
+  },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
   },
-  "assetsRegistered": [],
+  "verification": "All four protocol contracts source-verified on the explorer (forge verify-contract via Blockscout, constructor args included).",
   "notes": [
-    "Wiring verified on-chain 2026-09-12: vault.noteContract == note, note.{registry,oracle,vault} == deployed addresses, vault.token == USDG, bufferBps == 2000.",
-    "No assets registered yet — awaiting Chainlink feed addresses for testnet (README open item)."
+    "v2 redeployed after adding the 1-day protection tier (ProtectionMath is compiled into ProtectionNote; immutable, so a redeploy was required). v1 (registry 0xe1cF...7A6) is abandoned with zero funds and superseded.",
+    "Live read-path proof 2026-09-12: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — exact match to the spec formula at the DemoFeed price of $250.",
+    "On-chain write path pending testnet USDG in the deployer wallet: run script/DemoCreate.s.sol, then script/DemoSettle.s.sol after the 24h expiry."
   ]
 }
