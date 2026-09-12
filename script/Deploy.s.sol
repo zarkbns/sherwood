@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {DeployConfig} from "./Config.s.sol";
+import {ScriptBase} from "./ScriptBase.sol";
 import {AssetRegistry} from "../src/AssetRegistry.sol";
 import {ProtectionOracle} from "../src/ProtectionOracle.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
@@ -13,19 +14,16 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 /// @notice Full protocol deployment, chain-configured via DeployConfig (spec §7).
 ///         Sherwood targets Robinhood Chain: the settlement token is on-chain config
 ///         for mainnet (canonical USDG) and resolved from SETTLEMENT_TOKEN on the
-///         testnet until its USDG address is verified and published.
-///         Stock tokens and Chainlink feeds are read from the environment so feed
-///         addresses can be verified per chain at deploy time instead of baked in.
+///         testnet. Stock tokens and Chainlink feeds are read from the environment so
+///         feed addresses can be verified per chain at deploy time instead of baked in.
 ///
 ///         Required when the chain has no configured token:
 ///           SETTLEMENT_TOKEN=0x...
 ///         Optional per-asset registration (repeatable pattern):
 ///           TOKEN_TSLA=0x... FEED_TSLA=0x...   (also AMZN, NFLX, PLTR, AMD)
 ///
-///         Run: forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast --verify
-contract Deploy {
-    address constant VM_ADDRESS = address(uint160(uint256(uint160(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D))));
-
+///         Run: forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
+contract Deploy is ScriptBase {
     string[] internal SYMBOLS = ["TSLA", "AMZN", "NFLX", "PLTR", "AMD"];
 
     function run() external {
@@ -79,63 +77,5 @@ contract Deploy {
             registry.registerAsset(token, symbol, IAggregatorV3(feed), 0);
             vmLog(string.concat("registered ", symbol, " at ", vmToString(token)));
         }
-    }
-
-    // --- cheatcode shims: no forge-std, the build stays dependency-free ---
-
-    function vmStartBroadcast() internal {
-        (bool ok, ) = VM_ADDRESS.call(abi.encodeWithSignature("startBroadcast()"));
-        require(ok, "startBroadcast failed");
-    }
-
-    function vmStopBroadcast() internal {
-        (bool ok, ) = VM_ADDRESS.call(abi.encodeWithSignature("stopBroadcast()"));
-        require(ok, "stopBroadcast failed");
-    }
-
-    function vmLog(string memory message) internal {
-        (bool ok, ) = VM_ADDRESS.call(abi.encodeWithSignature("log(string)", message));
-        ok;
-    }
-
-    function vmToString(uint256 value) internal returns (string memory) {
-        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("toString(uint256)", value));
-        require(ok, "toString failed");
-        return abi.decode(data, (string));
-    }
-
-    function vmToString(address account) internal returns (string memory) {
-        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("toString(address)", account));
-        require(ok, "toString failed");
-        return abi.decode(data, (string));
-    }
-
-    function vmEnvString(string memory key) internal returns (string memory) {
-        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("envString(string)", key));
-        require(ok, "envString failed");
-        return abi.decode(data, (string));
-    }
-
-    function vmEnvOr(string memory key, string memory fallbackValue) internal returns (string memory) {
-        (bool ok, bytes memory data) =
-            VM_ADDRESS.call(abi.encodeWithSignature("envOr(string,string)", key, fallbackValue));
-        require(ok, "envOr failed");
-        return abi.decode(data, (string));
-    }
-
-    function vmParseAddress(string memory value) internal returns (address) {
-        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("parseAddress(string)", value));
-        require(ok, "parseAddress failed");
-        return abi.decode(data, (address));
-    }
-
-    function vmEnvAddress(string memory key) internal returns (address) {
-        return vmParseAddress(vmEnvString(key));
-    }
-
-    function vmEnvAddressOpt(string memory key) internal returns (address) {
-        string memory value = vmEnvOr(key, "");
-        if (bytes(value).length == 0) return address(0);
-        return vmParseAddress(value);
     }
 }
