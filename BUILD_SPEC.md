@@ -26,7 +26,7 @@ tokenLiability    = protectedUSD18 → settlement-token decimals   // reserved a
 payoutToken       = payoutUSD18 → settlement-token decimals      // transferred at settlement
 ```
 
-Token-unit conversion: `tokenAmount = usd18 / 10^(18 − tokenDecimals)` (USDC = 6 dec → /1e12; USDG = 18 dec → /1).
+Token-unit conversion: `tokenAmount = usd18 / 10^(18 − tokenDecimals)` (USDG = 6 dec → /1e12, verified via `decimals()` on-chain on both Robinhood networks; the contracts never assume a fixed value — they read `decimals()` from the settlement token).
 
 Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 - protectedUSD18 = 5e18 × 100e8 × 0.8e18 / 1e18 / 1e8 = 400e18 ($400) ✓

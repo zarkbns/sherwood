@@ -30,12 +30,11 @@ export function addressesFor(chainId: number): ProtocolAddresses | null {
 }
 
 /**
- * USDG (Paxos Global Dollar) settles every premium and payout. On Robinhood Chain
- * mainnet the canonical address is 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
- * (docs.robinhood.com/chain/contracts). The testnet address is not published yet —
- * set it via NEXT_PUBLIC_USDG_ROBINHOOD_TESTNET once verified on the testnet explorer.
- * Decimals are the Paxos-standard 18; contracts read decimals() on-chain regardless.
+ * USDG (Paxos Global Dollar) settles every premium and payout. Verified addresses:
+ * mainnet 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 (docs.robinhood.com/chain/contracts),
+ * testnet 0x7E955252E15c84f5768B83c41a71F9eba181802F (README "Verified Environment Facts").
+ * Decimals are 6 on both chains (read via cast); contracts read decimals() on-chain regardless.
  */
 export const SETTLEMENT_TOKEN: Record<number, { address: Address; symbol: string; decimals: number }> = {
-  46630: { address: (process.env.NEXT_PUBLIC_USDG_ROBINHOOD_TESTNET ?? "") as Address, symbol: "USDG", decimals: 18 },
+  46630: { address: (process.env.NEXT_PUBLIC_USDG_ROBINHOOD_TESTNET ?? "0x7E955252E15c84f5768B83c41a71F9eba181802F") as Address, symbol: "USDG", decimals: 6 },
 };
