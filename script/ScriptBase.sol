@@ -17,9 +17,13 @@ abstract contract ScriptBase {
         require(ok, "stopBroadcast failed");
     }
 
+    /// @notice Script log. This forge build rejects both `log(string)` and
+    ///         `emit_log(string)` as cheatcodes, so logs go out as a plain event and show
+    ///         up in `forge script -vvvv` as `emit Log(message: "...")`.
+    event Log(string message);
+
     function vmLog(string memory message) internal {
-        (bool ok, ) = VM_ADDRESS.call(abi.encodeWithSignature("log(string)", message));
-        ok;
+        emit Log(message);
     }
 
     function vmToString(uint256 value) internal returns (string memory) {
@@ -58,6 +62,13 @@ abstract contract ScriptBase {
             VM_ADDRESS.call(abi.encodeWithSignature("envOr(string,uint256)", key, fallbackValue));
         require(ok, "envOr failed");
         return abi.decode(data, (uint256));
+    }
+
+    /// @notice Address `forge script` signs from for this private key.
+    function vmAddr(uint256 privateKey) internal returns (address) {
+        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("addr(uint256)", privateKey));
+        require(ok, "addr failed");
+        return abi.decode(data, (address));
     }
 
     function vmParseAddress(string memory value) internal returns (address) {
