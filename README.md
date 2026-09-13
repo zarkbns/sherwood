@@ -239,15 +239,24 @@ Then open http://localhost:3000:
 
 ### Frontend on Vercel
 
-Deployable with zero configuration — the deployed testnet addresses are built in
-(see `deploy/deployments.json`):
+Deployable with zero configuration. The v4 testnet addresses and the settlement token are
+built into `frontend/lib/addresses.ts` (source of truth: `deploy/deployments.json`), fonts load
+at runtime rather than at build time, and every page prerenders as static content — so the
+build needs no secrets and no network beyond `npm ci` from the committed lockfile.
 
-1. Import the repo on Vercel, set **Root Directory** to `frontend` (Next.js is auto-detected)
+1. Import the repo on Vercel, set **Root Directory** to `frontend` (Next.js is auto-detected;
+   `outputFileTracingRoot` in `next.config.mjs` pins the workspace root there so nothing above
+   the checkout can pull the build graph sideways)
 2. Deploy — no env vars required
-3. Optional env vars: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (unlocks mobile-wallet QR via WalletConnect; get one free at cloud.walletconnect.com), `NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET` (a rate-limit-free RPC instead of the public one)
+3. Optional env vars: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (unlocks mobile-wallet QR via WalletConnect; get one free at cloud.walletconnect.com — with it unset the connector is simply not registered, which is the intended degradation), `NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET` (a rate-limit-free RPC instead of the public one)
+4. To buy protection on the deployed app you need the testnet settlement token: MockUSDG
+   (`0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006`), 1,000 per address per 24h — claim it with
+   `forge script script/Faucet.s.sol --rpc-url $RPC_URL --broadcast`, or from the site faucet
+   at testnet.robinhoodchain.com for the official testnet USDG
 
-All contract addresses fall back to the deployed testnet values and can be
-overridden per environment with `NEXT_PUBLIC_*` without touching code.
+All contract addresses fall back to the deployed testnet values and can be overridden per
+environment with `NEXT_PUBLIC_*` without touching code. `frontend/.env.local` does the same
+thing locally and is gitignored, so a deploy can never inherit a local-only address.
 
 ---
 
