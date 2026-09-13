@@ -45,6 +45,26 @@
     "AMD": "0x01575CF43Ad4AdB6E49a3f45876475F3FB59f346",
     "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry. Feeds persist across v2/v3/v4 redeploys."
   },
+  "demoNote": {
+    "id": 1,
+    "created": "2026-09-13",
+    "asset": "TSLA 0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+    "amount": "0.1e18 (18 dec)",
+    "entryPrice": "250e8 ($250, DemoFeed)",
+    "level": "80e16 (80% floor -> $20.00)",
+    "duration": "1 days",
+    "expiry": 1789370200,
+    "premium": "562500 MockUSDG ($0.5625 = $25 position at 225 bps)",
+    "liabilityReserved": "20000000 MockUSDG ($20.00)",
+    "txs": {
+      "DemoFeed.set": "0x8921fd4617848fb53285e10cb082a7a11d51bf2ffb35152edfde569fac0b06fb",
+      "approve": "0x0bbf6df64399ebbbd6d77fe9c336c7da18e5519366277f742f5a3056bd7ab4dd",
+      "vault.deposit": "0x29ad97637830e2f0876e3b281f9e281761baf985715dbdbcffe1a25c0f12e5f8",
+      "note.create": "0xa909643d305f6a7195d0397577f3c4e333ca66d6a902cb166e1532eb0fb0ebf4"
+    },
+    "readBack": "totalDeposits 50562500 = 50e6 deposit + premium; reserved 20000000; availableCapacity 20450000 = 80% of deposits minus reserved; vault MockUSDG balance 50562500 (custody == accounting, reserved fully backed); buyer 949437500; status ACTIVE; isSettlable false until expiry",
+    "next": "script/DemoSettle.s.sol after expiry (Mon 2026-09-14 ~08:16 WAT) — it drops the DemoFeed to $100, so the note pays out max(0, 20 - 10) = 10e6 MockUSDG"
+  },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
@@ -57,6 +77,6 @@
     "Position guard is unchanged in v4 (create() reverts InsufficientPosition unless the caller holds the protected stock); proven on-chain in the v3 simulation on 2026-09-12 and covered by tests since.",
     "Demo write path is now fundable but has not been run: script/Faucet.s.sol claims 1,000 MockUSDG per address per 24h, script/DemoCreate.s.sol then deposits to the vault and buys a 1-day note, and script/DemoSettle.s.sol settles it after expiry. Deliberately held pending the operator's go-ahead.",
     "Frontend still defaults to the v3 addresses and official USDG in frontend/lib/addresses.ts — it must be repointed at this v4 stack and MockUSDG before the app is used against testnet. Held until the operator asks for frontend work.",
-    "Deploy note for this chain: forge script needs --private-key passed explicitly here; relying on the PRIVATE_KEY env var alone left the broadcast using Foundry's default sender and nothing was signed (the first v4 attempt produced zero deployed code). Also expects an EIP-3855/PUSH0 warning for chain 46630 — v1 through v4 all deployed and execute fine."
+    "Deploy note for this chain: forge script needs --private-key passed explicitly for --broadcast; relying on the PRIVATE_KEY env var alone left the broadcast using Foundry's default sender and nothing was signed (the first v4 attempt produced zero deployed code). Dry runs need --sender set to the deployer too, or the DemoFeed's onlyOwner check reverts NotOwner. Expect an EIP-3855/PUSH0 warning for chain 46630 — v1 through v4 all deployed and execute fine."
   ]
 }

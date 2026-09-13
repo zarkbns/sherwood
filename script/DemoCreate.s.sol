@@ -5,6 +5,7 @@ import {ScriptBase} from "./ScriptBase.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
 import {ProtectionNote} from "../src/ProtectionNote.sol";
 import {DemoFeed} from "../src/testnet/DemoFeed.sol";
+import {ProtectionMath} from "../src/ProtectionMath.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 
 /// @title DemoCreate
@@ -30,11 +31,21 @@ contract DemoCreate is ScriptBase {
         uint256 amount = vmEnvUint("DEMO_AMOUNT", 0.1e18);
         uint256 level = vmEnvUint("DEMO_LEVEL", 80e16);
         uint256 price = vmEnvUint("DEMO_PRICE", 250e8);
+        IERC20 settlement = vault.token();
 
         vmStartBroadcast();
         feed.set(int256(price));
-        IERC20 settlement = vault.token();
-        settlement.approve(address(vault), fund);
+        vmStopBroadcast();
+
+        // Quote after the price lands so it matches what create() will store. The approval
+        // has to cover the deposit AND the premium: deposit pulls `fund` with transferFrom
+        // from this same wallet, which would leave the allowance at zero for create() to
+        // pull its premium from.
+        (uint256 premiumUSD18,,) = note.quote(asset, amount, level, 1 days);
+        uint256 premiumToken = ProtectionMath.toTokenUnits(premiumUSD18, settlement.decimals());
+
+        vmStartBroadcast();
+        settlement.approve(address(vault), fund + premiumToken);
         vault.deposit(fund);
         uint256 noteId = note.create(asset, amount, level, 1 days);
         vmStopBroadcast();
