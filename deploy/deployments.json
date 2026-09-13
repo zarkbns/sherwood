@@ -45,26 +45,48 @@
     "AMD": "0x01575CF43Ad4AdB6E49a3f45876475F3FB59f346",
     "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry. Feeds persist across v2/v3/v4 redeploys."
   },
-  "demoNote": {
-    "id": 1,
-    "created": "2026-09-13",
-    "asset": "TSLA 0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
-    "amount": "0.1e18 (18 dec)",
-    "entryPrice": "250e8 ($250, DemoFeed)",
-    "level": "80e16 (80% floor -> $20.00)",
-    "duration": "1 days",
-    "expiry": 1789370200,
-    "premium": "562500 MockUSDG ($0.5625 = $25 position at 225 bps)",
-    "liabilityReserved": "20000000 MockUSDG ($20.00)",
-    "txs": {
-      "DemoFeed.set": "0x8921fd4617848fb53285e10cb082a7a11d51bf2ffb35152edfde569fac0b06fb",
-      "approve": "0x0bbf6df64399ebbbd6d77fe9c336c7da18e5519366277f742f5a3056bd7ab4dd",
-      "vault.deposit": "0x29ad97637830e2f0876e3b281f9e281761baf985715dbdbcffe1a25c0f12e5f8",
-      "note.create": "0xa909643d305f6a7195d0397577f3c4e333ca66d6a902cb166e1532eb0fb0ebf4"
+  "demoNotes": [
+    {
+      "id": 1,
+      "purpose": "payout leg: settles below the floor, vault pays max(0, floor - current)",
+      "created": "2026-09-13",
+      "asset": "TSLA 0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+      "amount": "0.1e18 (18 dec)",
+      "entryPrice": "250e8 ($250, DemoFeed)",
+      "level": "80e16 (80% floor -> $20.00)",
+      "duration": "1 days",
+      "expiry": 1789370200,
+      "premium": "562500 MockUSDG ($0.5625 = $25 position at 225 bps)",
+      "liabilityReserved": "20000000 MockUSDG ($20.00)",
+      "txs": {
+        "DemoFeed.set": "0x8921fd4617848fb53285e10cb082a7a11d51bf2ffb35152edfde569fac0b06fb",
+        "approve": "0x0bbf6df64399ebbbd6d77fe9c336c7da18e5519366277f742f5a3056bd7ab4dd",
+        "vault.deposit": "0x29ad97637830e2f0876e3b281f9e281761baf985715dbdbcffe1a25c0f12e5f8",
+        "note.create": "0xa909643d305f6a7195d0397577f3c4e333ca66d6a902cb166e1532eb0fb0ebf4"
+      },
+      "readBack": "totalDeposits 50562500 = 50e6 deposit + premium; reserved 20000000; availableCapacity 20450000 = 80% of deposits minus reserved; vault MockUSDG balance 50562500 (custody == accounting, reserved fully backed); buyer 949437500; status ACTIVE; isSettlable false until expiry",
+      "next": "script/DemoSettle.s.sol NOTE_ID=1 after expiry (Mon 2026-09-14 08:16 WAT, scheduled job auimo4xo fires 08:25) — drops the DemoFeed to $100, so the note pays out max(0, 20 - 10) = 10e6 MockUSDG"
     },
-    "readBack": "totalDeposits 50562500 = 50e6 deposit + premium; reserved 20000000; availableCapacity 20450000 = 80% of deposits minus reserved; vault MockUSDG balance 50562500 (custody == accounting, reserved fully backed); buyer 949437500; status ACTIVE; isSettlable false until expiry",
-    "next": "script/DemoSettle.s.sol after expiry (Mon 2026-09-14 ~08:16 WAT) — it drops the DemoFeed to $100, so the note pays out max(0, 20 - 10) = 10e6 MockUSDG"
-  },
+    {
+      "id": 2,
+      "purpose": "no-payout leg: settles at exactly its floor price, so payout = max(0, floor - current) = 0 and only the reserve releases — proves on-chain that the buyer keeps the upside",
+      "created": "2026-09-13",
+      "asset": "TSLA 0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+      "amount": "0.05e18 (18 dec)",
+      "entryPrice": "250e8 ($250, DemoFeed)",
+      "level": "80e16 (80% floor -> $10.00)",
+      "duration": "1 days",
+      "expiry": 1789410976,
+      "premium": "281250 MockUSDG ($0.28125 = $12.50 position at 225 bps)",
+      "liabilityReserved": "10000000 MockUSDG ($10.00)",
+      "txs": {
+        "approve": "0x17fd5cc1e0cc6bd734e93f38b56232acfe01097bbfd41eb304d40033ce5d5647",
+        "note.create": "0xdd07a6b84f2fea4eb37ecdfe0beeca1b36ca2e7ff6f5745222173d0e983a6a76"
+      },
+      "readBack": "nextId 2; reserved 30000000 = 20e6 + 10e6; totalDeposits 50843750 == vault custody; availableCapacity 10675000; buyer 1949156250 = 1949437500 - premium; status ACTIVE",
+      "next": "script/DemoSettle.s.sol NOTE_ID=2 DEMO_SETTLE_PRICE=200e8 after expiry (Mon 2026-09-14 20:46 WAT, scheduled job fires 20:56) — settling at exactly the floor pays 0 and releases the reserve with no transfer"
+    }
+  ],
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
