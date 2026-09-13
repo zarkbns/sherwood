@@ -3,36 +3,32 @@
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
-  "deploymentVersion": 3,
-  "deployedAt": "2026-09-12",
+  "deploymentVersion": 4,
+  "deployedAt": "2026-09-13",
   "contracts": {
-    "registry": "0x41e7bc706D7aBF76Dbe72d50240F9f6AF151088d",
-    "oracle": "0x2B079894ADab3e806B37A6a0Bd0F33338CDbCED9",
-    "vault": "0x491ccb7F76632b7812D2A8d0d48Eec0292c41c70",
-    "note": "0x9FE9bb09cA3777AaffC7C20084c10CB1C2D419E0"
+    "registry": "0xE0909f8A7f53B46305e9Ec8BC2615041b9B31ed4",
+    "oracle": "0xb507dAD5584D9390Dd9F1C3304D69cf7a5711EAa",
+    "vault": "0x2725cC6cf40d287cD2Daf19AbD133ddd6f6f07D3",
+    "note": "0x70A976041099CDb07B3bAd408908d24833189Fd8"
   },
   "deployTxHashes": {
-    "AssetRegistry": "0x04a733c3a9c930338d807fd4f20b58c55b8978fb39132b94587884aa38f103bb",
-    "ProtectionOracle": "0xf3e0f726e116380dd3ed110c0ab70bc31506dbc8de1fbdb5a959e870bbce3821",
-    "SherwoodVault": "0xaf8e3145194ab386ca535852fc833fd37e83ab3d63ff0e04e73072a2c4bd5876",
-    "ProtectionNote": "0xb4a0d69173aed048bfb018e54e271c2349c1081b734bc81853a9ba6f9b3f1dca",
-    "setNoteContract": "0xc3b73e3d88b34aa6e24806339216ba765869ec5438c7f069003c5a949dcc87a5",
-    "registerAssetTSLA": "0xd2884ac73bbf6d353e914a8b6209c69ff0486d60c77efc4281ad73ef99523679"
+    "AssetRegistry": "0xe917a8deadd69421307556af9a17e2ab0b13bde7a7e861bec6a12621816eb1aa",
+    "ProtectionOracle": "0xb234a17c9edc1e24a2c529b769605d2be03c39261d0bfeae16919822182bd745",
+    "SherwoodVault": "0x5b71fcae5616246a329493455992f5a60bb8d0b8c4d035556d125a3e7149a3d6",
+    "ProtectionNote": "0x659d5ab09641f02b84fd01e576d1b5d44bb7effeea1710e6b3f33e0beb814186",
+    "setNoteContract": "0x8a7bac26a7bce3769d3635ea67b0a5f71c03e19a04582258194c43edaff765cd",
+    "registerAssetTSLA": "0x3be927d92be8ae8ab74fc45bc5e1f1e69da63673cb4151ba998089be4c89f085"
   },
   "settlementToken": {
-    "symbol": "USDG",
-    "address": "0x7E955252E15c84f5768B83c41a71F9eba181802F",
-    "decimals": 6,
-    "note": "What the LIVE v3 vault is bound to (SherwoodVault.token is immutable). Official testnet USDG, but Robinhood's testnet drip never funded any protocol wallet, so this stack cannot pay premiums or payouts. Superseded for new deploys by MockUSDG below."
-  },
-  "settlementTokenDefault": {
     "symbol": "MockUSDG",
     "name": "Mock USDG",
     "address": "0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006",
     "decimals": 6,
+    "boundOnChain": "vault.token() read back after deploy = 0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006",
     "faucet": "faucet() mints 1000e6 (1,000 tokens) per address per 86400s; FAUCET_AMOUNT/FAUCET_COOLDOWN read on-chain, mintLocked=true so the faucet is the only open supply",
     "verified": "2026-09-13 — source-verified on the explorer as src/mocks/MockUSDG.sol (creation tx 0x78a713a5d9b5d897f47809ead0f8afd540c0a0dae34c47903a028d471756e089, admin 0x0b64B35c6Dd23944D6D4029864D2cA2AA1B66422); live claim tx 0x6e8c867dfb0f9b2b057bac9cbe6fc82979dac7ec701f1b7cdb0af1bc8a4122e6 minted exactly 1000000000 and the immediate retry reverted FaucetCooldown(1789363365)",
-    "note": "script/Config.s.sol default for chainId 46630. Mainnet (4663) still defaults to canonical USDG 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168, and DeployConfig.settlementToken() reverts MockTokenOnMainnet if the mock is ever paired with 4663."
+    "why": "Testnet only, and only because the official testnet USDG drip has never funded a protocol wallet — premiums, vault reserves and payouts have to be exercisable to be verifiable. 6 decimals like USDG, so no protocol math differs; ProtectionNote reads decimals() from vault.token() at runtime.",
+    "mainnet": "Chain 4663 defaults to canonical USDG 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168, and DeployConfig.settlementToken() reverts MockTokenOnMainnet if the mock is ever paired with 4663. SETTLEMENT_TOKEN overrides either default; switching testnet back to official USDG (0x7E955252E15c84f5768B83c41a71F9eba181802F) is that one env line plus a redeploy."
   },
   "assets": {
     "TSLA": {
@@ -47,19 +43,20 @@
     "NFLX": "0x0bA3E299EE7548A3F56f1cbaA4A88B48b798dC7b",
     "PLTR": "0xFcB760a8A2B1580048962805D20BDc053bE2b925",
     "AMD": "0x01575CF43Ad4AdB6E49a3f45876475F3FB59f346",
-    "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry. Feeds persist across v2/v3 redeploys."
+    "note": "Deployed via script/DemoFeed.s.sol, initial prices default $100 (TSLA $250). Only TSLA is registered in the asset registry. Feeds persist across v2/v3/v4 redeploys."
   },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
   },
-  "verification": "All four v3 protocol contracts source-verified on the explorer (forge verify-contract via Blockscout, constructor args included).",
+  "verification": "All four v4 protocol contracts source-verified on the explorer (solc 0.8.35, optimizer 200 runs, constructor args included for the vault and the note; the registry and oracle matched by bytecode).",
   "notes": [
-    "v3 redeployed to activate the create() position guard (buyer must hold the protected stock; commit ebb997b). v1/v2 are abandoned with zero funds and superseded.",
-    "Position guard proven on-chain by simulation 2026-09-12: eth_call create() from a zero-TSLA address reverts InsufficientPosition(asset, held=0, required=1e18) with fully decoded custom error data; callers holding official TSLA pass the guard and fail later at the empty-vault capacity check (InsufficientCapacity) — order verified.",
-    "Deployer wallet holds 15 official TSLA (plus AMZN/NFLX/PLTR/AMD from the testnet stock faucet), so the demo create satisfies the position guard with a real position.",
-    "Live read-path proof: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — exact match to the spec formula at the DemoFeed price of $250.",
-    "On-chain write path is still blocked on this v3 stack: SherwoodVault.token is immutable and bound to official testnet USDG, which no protocol wallet has ever received (balance 0 as of 2026-09-13).",
-    "Resolution 2026-09-13: MockUSDG (source-verified, public faucet of 1,000 per address per 24h, 6 decimals like USDG) is now the chainId 46630 default in script/Config.s.sol, with SETTLEMENT_TOKEN still able to override it. A v4 redeploy is what actually moves premiums, vault reserves and payouts onto the claimable token: deploy, then run script/Faucet.s.sol, script/DemoCreate.s.sol, and script/DemoSettle.s.sol after the 24h expiry. Frontend default in frontend/lib/addresses.ts moves with that redeploy."
+    "v4 redeployed for one reason: SherwoodVault.token is immutable, so the v3 vault will forever point at official testnet USDG, a token no protocol wallet has ever received. v3/v2/v1 are abandoned with zero funds and superseded.",
+    "Wiring read back from chain after deploy: vault.token() = MockUSDG, vault.noteContract() = the new note, vault.bufferBps() = 2000, note.{registry,oracle,vault} all correct, registry.getAsset(TSLA) = registered + active, vault owner = deployer.",
+    "Live read-path proof on v4: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — identical to v3 and to the spec formula at the DemoFeed price of $250.",
+    "Position guard is unchanged in v4 (create() reverts InsufficientPosition unless the caller holds the protected stock); proven on-chain in the v3 simulation on 2026-09-12 and covered by tests since.",
+    "Demo write path is now fundable but has not been run: script/Faucet.s.sol claims 1,000 MockUSDG per address per 24h, script/DemoCreate.s.sol then deposits to the vault and buys a 1-day note, and script/DemoSettle.s.sol settles it after expiry. Deliberately held pending the operator's go-ahead.",
+    "Frontend still defaults to the v3 addresses and official USDG in frontend/lib/addresses.ts — it must be repointed at this v4 stack and MockUSDG before the app is used against testnet. Held until the operator asks for frontend work.",
+    "Deploy note for this chain: forge script needs --private-key passed explicitly here; relying on the PRIVATE_KEY env var alone left the broadcast using Foundry's default sender and nothing was signed (the first v4 attempt produced zero deployed code). Also expects an EIP-3855/PUSH0 warning for chain 46630 — v1 through v4 all deployed and execute fine."
   ]
 }
