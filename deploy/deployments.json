@@ -22,7 +22,17 @@
   "settlementToken": {
     "symbol": "USDG",
     "address": "0x7E955252E15c84f5768B83c41a71F9eba181802F",
-    "decimals": 6
+    "decimals": 6,
+    "note": "What the LIVE v3 vault is bound to (SherwoodVault.token is immutable). Official testnet USDG, but Robinhood's testnet drip never funded any protocol wallet, so this stack cannot pay premiums or payouts. Superseded for new deploys by MockUSDG below."
+  },
+  "settlementTokenDefault": {
+    "symbol": "MockUSDG",
+    "name": "Mock USDG",
+    "address": "0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006",
+    "decimals": 6,
+    "faucet": "faucet() mints 1000e6 (1,000 tokens) per address per 86400s; FAUCET_AMOUNT/FAUCET_COOLDOWN read on-chain, mintLocked=true so the faucet is the only open supply",
+    "verified": "2026-09-13 — source-verified on the explorer as src/mocks/MockUSDG.sol (creation tx 0x78a713a5d9b5d897f47809ead0f8afd540c0a0dae34c47903a028d471756e089, admin 0x0b64B35c6Dd23944D6D4029864D2cA2AA1B66422); live claim tx 0x6e8c867dfb0f9b2b057bac9cbe6fc82979dac7ec701f1b7cdb0af1bc8a4122e6 minted exactly 1000000000 and the immediate retry reverted FaucetCooldown(1789363365)",
+    "note": "script/Config.s.sol default for chainId 46630. Mainnet (4663) still defaults to canonical USDG 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168, and DeployConfig.settlementToken() reverts MockTokenOnMainnet if the mock is ever paired with 4663."
   },
   "assets": {
     "TSLA": {
@@ -49,6 +59,7 @@
     "Position guard proven on-chain by simulation 2026-09-12: eth_call create() from a zero-TSLA address reverts InsufficientPosition(asset, held=0, required=1e18) with fully decoded custom error data; callers holding official TSLA pass the guard and fail later at the empty-vault capacity check (InsufficientCapacity) — order verified.",
     "Deployer wallet holds 15 official TSLA (plus AMZN/NFLX/PLTR/AMD from the testnet stock faucet), so the demo create satisfies the position guard with a real position.",
     "Live read-path proof: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — exact match to the spec formula at the DemoFeed price of $250.",
-    "On-chain write path pending testnet USDG in the deployer wallet (official faucet claims not landing; escalated to Robinhood dev support): run script/DemoCreate.s.sol, then script/DemoSettle.s.sol after the 24h expiry."
+    "On-chain write path is still blocked on this v3 stack: SherwoodVault.token is immutable and bound to official testnet USDG, which no protocol wallet has ever received (balance 0 as of 2026-09-13).",
+    "Resolution 2026-09-13: MockUSDG (source-verified, public faucet of 1,000 per address per 24h, 6 decimals like USDG) is now the chainId 46630 default in script/Config.s.sol, with SETTLEMENT_TOKEN still able to override it. A v4 redeploy is what actually moves premiums, vault reserves and payouts onto the claimable token: deploy, then run script/Faucet.s.sol, script/DemoCreate.s.sol, and script/DemoSettle.s.sol after the 24h expiry. Frontend default in frontend/lib/addresses.ts moves with that redeploy."
   ]
 }

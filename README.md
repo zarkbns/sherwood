@@ -189,7 +189,8 @@ These were verified against official docs (September 2026):
 | Gas token | ETH | docs.robinhood.com/chain |
 | USDG on mainnet | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | docs.robinhood.com/chain/contracts |
 | USDG on testnet | `0x7E955252E15c84f5768B83c41a71F9eba181802F` | testnet explorer, verified 2026-09-12: ERC-1967 proxy to verified Paxos `contracts/stablecoins/USDG.sol` (`0xF0863D7A29a55d0c4263c11bFac754312ff078DF`); implementation bytecode is byte-identical to the mainnet USDG implementation except self-references and one chain constant |
-| Testnet USDG faucet | 100 USDG per claim, dripped continuously by ops wallet `0xcc9644EC26A647de0B9b86f1560d5180232f70a3`; claim site `https://testnet.robinhoodchain.com` | testnet explorer transfer history, observed live 2026-09-12 |
+| Testnet USDG faucet | 100 USDG per claim, dripped continuously by ops wallet `0xcc9644EC26A647de0B9b86f1560d5180232f70a3`; claim site `https://testnet.robinhoodchain.com` — **no claim ever reached protocol wallets** (balance still 0 as of 2026-09-13; escalated to Robinhood dev support), which is why the testnet stack settles on MockUSDG below | testnet explorer transfer history, observed live 2026-09-12; re-checked 2026-09-13 |
+| **Settlement token on testnet (protocol default)** | MockUSDG `0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006` — "Mock USDG", symbol `USDG`, **6 decimals**, public `faucet()` = **1,000 tokens per address per 24h** (`FAUCET_AMOUNT = 1000e6`, `FAUCET_COOLDOWN = 1 days`), `mintLocked = true` so the faucet is the only open supply; testnet-only, admin `0x0b64B35c6Dd23944D6D4029864D2cA2AA1B66422` can still mint/burn | source-verified on the testnet explorer as `src/mocks/MockUSDG.sol` (solc 0.8.28, creation tx `0x78a713a5d9b5d897f47809ead0f8afd540c0a0dae34c47903a028d471756e089`); constants read on-chain and one live claim proven 2026-09-13: tx `0x6e8c867dfb0f9b2b057bac9cbe6fc82979dac7ec701f1b7cdb0af1bc8a4122e6` minted exactly `1_000_000_000`, immediate retry reverted `FaucetCooldown(1789363365)` = claim timestamp + 86400 |
 | Stock tokens on testnet (18 dec, `BeaconProxy` → verified `Stock` impl) | TSLA `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E`, AMZN `0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02`, NFLX `0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93`, PLTR `0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0`, AMD `0x71178BAc73cBeb415514eB542a8995b82669778d` | testnet explorer token list (same deployer infra as the verified Beacon/`Stock` contracts) |
 | Price feeds | Every Stock Token has a Chainlink feed (`AggregatorV3`, `latestRoundData()`); USD feeds are 8 decimals; updates are 24/5 with no heartbeats off-hours | docs.robinhood.com/chain/oracles-and-price-feeds |
 
@@ -211,12 +212,17 @@ forge test
 # Deploy to Robinhood Chain testnet
 export RPC_URL=https://rpc.testnet.chain.robinhood.com
 export PRIVATE_KEY=your-testnet-key
-export SETTLEMENT_TOKEN=0x7E955252E15c84f5768B83c41a71F9eba181802F   # verified testnet USDG
+export SETTLEMENT_TOKEN=0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006   # optional: MockUSDG is already the 46630 default; point at 0x7E95... when real testnet USDG becomes claimable
 export TOKEN_TSLA=0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E FEED_TSLA=0x...   # repeat per asset (AMZN, NFLX, PLTR, AMD)
 forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
 # Source verification (Blockscout):
 forge verify-contract --chain-id 46630 --verifier blockscout \
   --verifier-url https://explorer.testnet.chain.robinhood.com/api <ADDRESS> <SRC>:<CONTRACT> [--constructor-args <abi-encoded>]
+
+# Fund a wallet for the demo (testnet only): claims the settlement token, then
+# DemoCreate.s.sol deposits into the vault and buys a 1-day note.
+forge script script/Faucet.s.sol --rpc-url $RPC_URL --broadcast     # 1,000 per address per 24h
+forge script script/DemoCreate.s.sol --rpc-url $RPC_URL --broadcast # after expiry: DemoSettle.s.sol
 
 # Frontend (SherwoodNotes)
 cd frontend
@@ -225,7 +231,7 @@ npm run dev
 ```
 
 Then open http://localhost:3000:
-1. Connect wallet on Robinhood Chain testnet (testnet USDG required)
+1. Connect wallet on Robinhood Chain testnet (testnet settlement tokens required — claim them with `script/Faucet.s.sol` or the site faucet at testnet.robinhoodchain.com)
 2. View your stock tokens
 3. Select asset and create a Protection Note
 4. Monitor on-chain settlement
@@ -264,7 +270,7 @@ sherwood/
 │   └── interfaces/                  # IERC20, IAggregatorV3 (vendored)
 │
 ├── test/                            # Foundry tests (dependency-free TestBase)
-├── script/                          # Deploy.s.sol + Config.s.sol (chain config)
+├── script/                          # Deploy.s.sol, Config.s.sol (chain config), Faucet.s.sol, demo scripts
 ├── assets/                          # Logo, opengraph card, brand art
 └── frontend/                        # SherwoodNotes (Next.js App Router)
     ├── app/                         # Dashboard, Protect, Notes, Vault pages
@@ -374,7 +380,7 @@ ACTIVE (waiting for expiry)
 
 ## Critical Rules
 
-**No Mocks** — All primary flows interact with real testnet infrastructure: real stock token balances, real Chainlink prices, real wallet connections, real Protection Notes, real USDG settlement.
+**No Mocked Flows** — Every primary flow runs against real testnet infrastructure: real stock token balances, real wallet connections, real on-chain Protection Notes, real ERC-20 settlement transfers. Two substitutes exist on testnet, both disclosed, and both are addresses rather than code paths: prices come from owner-set `DemoFeed` stand-ins (Chainlink publishes no tokenized-equity feeds on 46630) and the settlement token is `MockUSDG`, a source-verified 6-decimal faucet token, because Robinhood's testnet USDG drip never funded a protocol wallet. Mainnet uses real Chainlink feeds and canonical USDG with no protocol change — only `script/Config.s.sol` differs, and it refuses the mock on mainnet outright.
 
 **No Overbuild** — Sherwood's core demo is: Real Stock Token → User Creates Protection Note → Verified Price → On-Chain Terms → Real Settlement. That alone is a complete financial primitive.
 
