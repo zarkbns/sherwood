@@ -12,15 +12,18 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 
 /// @title Deploy
 /// @notice Full protocol deployment, chain-configured via DeployConfig (spec §7).
-///         Sherwood targets Robinhood Chain: the settlement token is on-chain config
-///         for mainnet (canonical USDG) and resolved from SETTLEMENT_TOKEN on the
-///         testnet. Stock tokens and Chainlink feeds are read from the environment so
-///         feed addresses can be verified per chain at deploy time instead of baked in.
+///         Sherwood targets Robinhood Chain: the settlement token defaults to
+///         canonical USDG on mainnet and the faucet-supplied MockUSDG on testnet, and
+///         `SETTLEMENT_TOKEN` overrides either. Stock tokens and Chainlink feeds are
+///         read from the environment so feed addresses can be verified per chain at
+///         deploy time instead of baked in.
 ///
 ///         Required when the chain has no configured token:
 ///           SETTLEMENT_TOKEN=0x...
-///         Optional per-asset registration (repeatable pattern):
-///           TOKEN_TSLA=0x... FEED_TSLA=0x...   (also AMZN, NFLX, PLTR, AMD)
+///         Optional:
+///           SETTLEMENT_TOKEN=0x...   override the chain default (both networks)
+///           TOKEN_TSLA=0x... FEED_TSLA=0x...   per-asset registration (also AMZN,
+///                                                NFLX, PLTR, AMD)
 ///
 ///         Run: forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
 contract Deploy is ScriptBase {
@@ -28,11 +31,25 @@ contract Deploy is ScriptBase {
 
     function run() external {
         uint256 chainId = block.chainid;
-        DeployConfig.ChainConfig memory cfg = new DeployConfig().get(chainId);
+        DeployConfig config = new DeployConfig();
+        DeployConfig.ChainConfig memory cfg = config.get(chainId);
 
-        address settlement = cfg.settlementToken != address(0) ? cfg.settlementToken : vmEnvAddress("SETTLEMENT_TOKEN");
+        address settlement = config.settlementToken(chainId, vmEnvAddressOpt("SETTLEMENT_TOKEN"));
+        // MockTokenOnMainnet covers the dangerous case: the testnet mock has an admin
+        // that can mint unlimited balance, so reserving real collateral against it would
+        // misstate what backs a note.
         vmLog(string.concat("chain: ", vmToString(chainId)));
-        vmLog(string.concat("settlement token: ", vmToString(settlement)));
+        vmLog(string.concat("settlement token: ", vmToString(settlement),
+            config.isTestnetMockToken(settlement) ? " (MockUSDG - testnet faucet, 1,000 per address per 24h)"
+                : " (canonical USDG)"));
+
+        // Pre-flight: the vault prices every premium, reserve and payout in this token's
+        // units, so a token with no code or unsupported decimals must fail here rather
+        // than after four contracts have been deployed against it.
+        require(settlement.code.length > 0, "settlement token has no code at this address");
+        uint8 settlementDecimals = IERC20(settlement).decimals();
+        require(settlementDecimals <= 18, "settlement token decimals above 18 are unsupported");
+        vmLog(string.concat("settlement decimals: ", vmToString(uint256(settlementDecimals))));
 
         vmStartBroadcast();
 
@@ -61,7 +78,8 @@ contract Deploy is ScriptBase {
         vmLog(string.concat("  ProtectionOracle: ", vmToString(address(oracle))));
         vmLog(string.concat("  SherwoodVault:    ", vmToString(address(vault))));
         vmLog(string.concat("  ProtectionNote:   ", vmToString(address(note))));
-        vmLog("next: fund the vault with the settlement token, then verify feeds on the explorer");
+        vmLog("next: fund the vault with the settlement token (script/Faucet.s.sol claims MockUSDG on testnet),");
+        vmLog("      then verify feeds on the explorer");
     }
 
     function _registerAssets(AssetRegistry registry) internal {
