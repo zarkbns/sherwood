@@ -1,25 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useChainId, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { formatUnits } from "viem";
 import { Header } from "@/components/Header";
-import { Empty, TxStatus } from "@/components/ui";
+import { TxStatus, SegmentedControl, Eyebrow, EmptyState, IconShield, type TxFail } from "@/components/ui";
 import { useDeployed, useAssets, settlementTokenFor, parseTokenAmount, usd18ToToken } from "@/lib/protocol";
 import { noteAbi, erc20Abi } from "@/lib/abis";
-import { fmtUsd18, fmtPrice, fmtExpiry, fmtToken } from "@/lib/format";
+import { fmtUsd18, fmtPrice, fmtExpiry, fmtQty } from "@/lib/format";
+
+const DAY = 24n * 60n * 60n;
 
 const LEVELS = [
-  { label: "70%", value: 70n * 10n ** 16n },
-  { label: "80%", value: 80n * 10n ** 16n },
-  { label: "90%", value: 90n * 10n ** 16n },
+  { label: "70%", value: 70n * 10n ** 16n, hint: "covers 30% drops" },
+  { label: "80%", value: 80n * 10n ** 16n, hint: "covers 20% drops" },
+  { label: "90%", value: 90n * 10n ** 16n, hint: "covers 10% drops" },
 ];
 
 const DURATIONS = [
-  { label: "1 day", value: 24n * 60n * 60n },
-  { label: "7 days", value: 7n * 24n * 60n * 60n },
-  { label: "14 days", value: 14n * 24n * 60n * 60n },
-  { label: "30 days", value: 30n * 24n * 60n * 60n },
+  { label: "1 day", value: DAY },
+  { label: "7 days", value: 7n * DAY },
+  { label: "14 days", value: 14n * DAY },
+  { label: "30 days", value: 30n * DAY },
 ];
 
 export default function Protect() {
@@ -54,8 +56,7 @@ export default function Protect() {
 
   const premiumUSD18 = quote?.[0];
   const protectedUSD18 = quote?.[1];
-  const quoteExpiry = quote?.[2];
-  const premiumToken = premiumUSD18 !== undefined ? usd18ToToken(premiumUSD18, st?.decimals ?? 18) : 0n;
+  const premiumToken = premiumUSD18 !== undefined ? usd18ToToken(premiumUSD18, st?.decimals ?? 6) : 0n;
 
   const { data: allowance } = useReadContract({
     address: st?.address,
@@ -97,144 +98,178 @@ export default function Protect() {
       ? "you must hold the stock you are protecting — reduce the amount"
       : error.message.slice(0, 120)
     : null;
-  const state = isPending
-    ? "Confirm in wallet…"
+  const txState: TxFail | null = isPending
+    ? { kind: "pending", text: "Confirm in wallet…" }
     : receipt.isLoading
-      ? "Waiting for confirmation…"
+      ? { kind: "busy", text: "Waiting for confirmation…" }
       : receipt.isSuccess
-        ? "Protection Note created — see Notes."
+        ? { kind: "success", text: "Protection Note created — see Notes" }
         : failReason
-          ? `Failed: ${failReason}`
+          ? { kind: "error", text: `Failed: ${failReason}` }
           : null;
+
+  if (!deployed) {
+    return (
+      <>
+        <Header />
+        <main className="mx-auto max-w-5xl px-5 pb-28 pt-8 sm:px-6 sm:pb-14 sm:pt-12">
+          <EmptyState
+            icon={<IconShield className="h-6 w-6" />}
+            title="Not deployed on this network"
+            body="Switch to Robinhood Chain testnet where Sherwood is deployed."
+          />
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        {!deployed ? (
-          <Empty title="Not deployed on this network" body="Switch to Robinhood Chain testnet where Sherwood is deployed." />
-        ) : assets.length === 0 ? (
-          <Empty title="No registered assets" body="No stock tokens are registered on this chain yet." />
+      <main className="mx-auto max-w-5xl px-5 pb-28 pt-8 sm:px-6 sm:pb-14 sm:pt-12">
+        <section className="rise">
+          <Eyebrow>New protection</Eyebrow>
+          <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+            Define the downside<span className="text-action">.</span>
+          </h1>
+          <p className="mt-2 text-sm text-mist">
+            Hold it, protect it, keep the upside. Terms are priced live by the contract and never change after creation.
+          </p>
+        </section>
+
+        {assets.length === 0 ? (
+          <div className="mt-8">
+            <EmptyState
+              icon={<IconShield className="h-6 w-6" />}
+              title="No registered assets"
+              body="No stock tokens are registered on this chain yet."
+            />
+          </div>
         ) : (
-          <>
-            <h1 className="font-display text-4xl font-bold tracking-tight">
-              Protect<span className="text-action">.</span>
-            </h1>
-            <p className="mt-2 text-sm text-mist">
-              Define your floor. The quote below is read live from the Chainlink-backed contract.
-            </p>
+          <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-5">
+            {/* Ticket */}
+            <div className="inset-card rise rounded-3xl p-6 lg:col-span-3" style={{ animationDelay: "60ms" }}>
+              <Eyebrow>Asset</Eyebrow>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {assets.map((a, i) => {
+                  const active = asset === a.token;
+                  const disabled = !a.active;
+                  return (
+                    <button
+                      key={a.token}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setAsset(a.token)}
+                      className={`rounded-2xl border px-3 py-3 text-left transition-colors duration-150 disabled:opacity-40 ${
+                        active
+                          ? "border-action/60 bg-surface-3"
+                          : "border-line bg-surface hover:border-mist/40 hover:bg-white/[0.03]"
+                      }`}
+                      style={{ transitionDelay: `${i * 10}ms` }}
+                    >
+                      <span className="block font-display text-sm font-bold">{a.symbol}</span>
+                      <span className="tnum mt-0.5 block text-xs text-mist">
+                        {disabled ? "inactive" : fmtPrice(a.price8)}
+                      </span>
+                      {a.balance !== undefined && a.balance > 0n && !disabled ? (
+                        <span className="tnum mt-0.5 block text-[10px] text-fog">
+                          you hold {fmtQty(a.balance, a.decimals)}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-5">
-              <div className="inset-card space-y-6 rounded-3xl p-6 lg:col-span-3">
-                <div>
-                  <label className="text-xs uppercase tracking-widest text-mist">Asset</label>
-                  <select
-                    className="mt-2 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none"
-                    value={asset}
-                    onChange={(e) => setAsset(e.target.value)}
-                  >
-                    <option value="">Select asset…</option>
-                    {assets
-                      .filter((a) => a.active)
-                      .map((a) => (
-                        <option key={a.token} value={a.token}>
-                          {a.symbol} — live {fmtPrice(a.price8)}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex items-baseline justify-between">
-                    <label className="text-xs uppercase tracking-widest text-mist">Amount ({selected?.symbol ?? "tokens"})</label>
-                    {selected && held !== undefined ? (
-                      <button
-                        type="button"
-                        onClick={() => setAmount(formatUnits(held, selected.decimals))}
-                        className="text-xs text-action hover:underline"
-                      >
-                        Protect max
-                      </button>
-                    ) : null}
-                  </div>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    inputMode="decimal"
-                  />
-                  {selected ? (
-                    <p className={`mt-2 text-xs ${overPosition ? "text-fog" : "text-mist"}`}>
-                      {held === undefined
-                        ? "Connect a wallet to see your position."
-                        : overPosition
-                          ? `Position guard: you hold ${fmtToken(held, selected.decimals, selected.symbol)} — the contract rejects protecting more.`
-                          : `You hold ${fmtToken(held, selected.decimals, selected.symbol)} — protection never leaves your wallet.`}
-                    </p>
+              <div className="mt-6">
+                <div className="flex items-baseline justify-between">
+                  <Eyebrow>Amount ({selected?.symbol ?? "tokens"})</Eyebrow>
+                  {selected && held !== undefined && held > 0n ? (
+                    <button
+                      type="button"
+                      onClick={() => setAmount(formatUnits(held, selected.decimals))}
+                      className="text-xs text-action hover:underline"
+                    >
+                      Protect max
+                    </button>
                   ) : null}
                 </div>
+                <input
+                  className="tnum mt-2 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none focus:border-action/60"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                />
+                {selected ? (
+                  <p className={`mt-2 text-xs ${overPosition ? "text-fog" : "text-mist"}`}>
+                    {held === undefined
+                      ? "Connect a wallet to see your position."
+                      : overPosition
+                        ? `Position guard: you hold ${fmtQty(held, selected.decimals, selected.symbol)} — the contract rejects protecting more.`
+                        : `You hold ${fmtQty(held, selected.decimals, selected.symbol)} — protection never leaves your wallet.`}
+                  </p>
+                ) : null}
+              </div>
 
-                <div>
-                  <label className="text-xs uppercase tracking-widest text-mist">Protection level</label>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    {LEVELS.map((l) => (
-                      <button
-                        key={l.label}
-                        onClick={() => setLevel(l.value)}
-                        className={`rounded-xl border px-4 py-3 text-sm ${level === l.value ? "border-action text-ink" : "border-line text-fog hover:text-ink"}`}
-                      >
-                        {l.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs uppercase tracking-widest text-mist">Duration</label>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {DURATIONS.map((d) => (
-                      <button
-                        key={d.label}
-                        onClick={() => setDuration(d.value)}
-                        className={`rounded-xl border px-4 py-3 text-sm ${duration === d.value ? "border-action text-ink" : "border-line text-fog hover:text-ink"}`}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
+              <div className="mt-6">
+                <Eyebrow>Protection level</Eyebrow>
+                <div className="mt-2">
+                  <SegmentedControl options={LEVELS} value={level} onChange={setLevel} />
                 </div>
               </div>
 
-              <div className="inset-card rounded-3xl p-6 lg:col-span-2">
-                <div className="text-xs uppercase tracking-widest text-mist">Terms</div>
+              <div className="mt-6">
+                <Eyebrow>Duration</Eyebrow>
+                <div className="mt-2">
+                  <SegmentedControl options={DURATIONS} value={duration} onChange={setDuration} />
+                </div>
+              </div>
+            </div>
+
+            {/* Terms rail */}
+            <div className="lg:col-span-2">
+              <div className="inset-card rise sticky rounded-3xl p-6 lg:top-24" style={{ animationDelay: "120ms" }}>
+                <Eyebrow>Terms</Eyebrow>
                 {quote ? (
-                  <dl className="mt-4 space-y-3 text-sm">
-                    <Row label="Position value" value={fmtUsd18((amountWei * (selected?.price8 ?? 0n)) / 10n ** 8n)} />
-                    <Row label="Entry price (Chainlink)" value={fmtPrice(selected?.price8)} />
-                    <Row label="Your floor" value={fmtUsd18(protectedUSD18)} />
-                    <Row label="Max payout" value={fmtUsd18(protectedUSD18)} />
-                    <Row label="Premium due" value={fmtUsd18(premiumUSD18)} />
-                    <Row label="Expires" value={fmtExpiry(quote[2])} />
-                  </dl>
+                  <>
+                    <div className="mt-4">
+                      <div className="text-xs text-mist">Premium due now</div>
+                      <div className="tnum mt-1 font-display text-4xl font-bold leading-none tracking-tight text-ink">
+                        {fmtUsd18(premiumUSD18)}
+                      </div>
+                      <div className="tnum mt-1 text-xs text-mist">
+                        {premiumToken.toLocaleString("en-US", { maximumFractionDigits: 2 })} {st?.symbol}
+                      </div>
+                    </div>
+                    <dl className="mt-6 space-y-3 text-sm">
+                      <Row label="Position value" value={fmtUsd18((amountWei * (selected?.price8 ?? 0n)) / 10n ** 8n)} />
+                      <Row label="Entry price (live feed)" value={fmtPrice(selected?.price8)} />
+                      <Row label="Your floor" value={fmtUsd18(protectedUSD18)} />
+                      <Row label="Max payout" value={fmtUsd18(protectedUSD18)} />
+                      <Row label="Expires" value={fmtExpiry(quote[2])} />
+                    </dl>
+                  </>
                 ) : (
-                  <p className="mt-4 text-sm text-mist">Pick an asset and amount to get a live quote.</p>
+                  <p className="mt-4 text-sm text-mist">
+                    Pick an asset and enter an amount — the contract quotes premium, floor, and expiry live.
+                  </p>
                 )}
 
                 <div className="mt-6 space-y-3">
                   {needsApproval ? (
-                    <button onClick={approve} disabled={!canApprove} className="btn-action w-full rounded-xl px-4 py-3 text-sm">
+                    <button onClick={approve} disabled={!canApprove} className="btn-ghost w-full rounded-2xl px-4 py-3 text-sm">
                       Approve {st?.symbol ?? "token"}
                     </button>
                   ) : null}
-                  <button onClick={create} disabled={!canCreate} className="btn-action w-full rounded-xl px-4 py-3 text-sm">
+                  <button onClick={create} disabled={!canCreate} className="btn-action w-full rounded-2xl px-4 py-3.5 text-sm">
                     {needsApproval ? "Approval required first" : overPosition ? "Exceeds your position" : "Buy Protection Note"}
                   </button>
-                  <TxStatus state={state} />
+                  <TxStatus state={txState} />
                 </div>
               </div>
             </div>
-          </>
+          </div>
         )}
       </main>
     </>
@@ -245,7 +280,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
       <dt className="text-mist">{label}</dt>
-      <dd className="font-display font-bold">{value}</dd>
+      <dd className="tnum font-display font-bold">{value}</dd>
     </div>
   );
 }

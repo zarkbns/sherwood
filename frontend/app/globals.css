@@ -26,31 +26,138 @@
   --font-body: "Inter", system-ui, sans-serif;
 }
 
+/*
+ * Shape lock (stated rule, no exceptions):
+ *   cards 24 (rounded-3xl) · inner panels 16-20 (rounded-2xl) · buttons 16
+ *   (rounded-2xl) · inputs 12 (rounded-xl) · pills 9999 (rounded-full)
+ * Accent lock: #1c6cff is the only chromatic voice; neutrals carry the app.
+ */
+
+html {
+  scrollbar-color: var(--color-steel-border) var(--color-midnight-canvas);
+}
+
 body {
   background: var(--color-midnight-canvas);
   color: var(--color-paper-white);
   font-weight: 100;
   font-family: var(--font-body), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Every figure that counts, times, or prices — digits aligned like a terminal. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 .inset-card {
   background: var(--color-deep-surface);
-  border: 1px solid var(--color-steel-border);
+  border: 1px solid color-mix(in srgb, var(--color-steel-border) 70%, transparent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    inset 0 -8px 24px rgba(0, 0, 0, 0.45);
+    inset 4px 4px 8px 0 rgba(255, 255, 255, 0.04),
+    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.1),
+    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.5),
+    inset 1px 1px 1px -0.5px rgba(255, 255, 255, 0.25);
+}
+
+/* Pressed treatment — the surface sinks, it does not lift. */
+.inset-card--press:active {
+  box-shadow:
+    inset 0 0 0 1px rgba(28, 108, 255, 0.35),
+    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.2),
+    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.08);
 }
 
 .btn-action {
   background: var(--color-signal-blue);
   color: #fff;
   font-weight: 400;
+  transition: background 150ms ease, transform 120ms ease, opacity 150ms ease;
 }
 .btn-action:hover {
   background: #3d80ff;
 }
+.btn-action:active {
+  transform: scale(0.98);
+}
 .btn-action:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
+}
+
+.btn-ghost {
+  border: 1px solid var(--color-steel-border);
+  color: var(--color-fog);
+  transition: border-color 150ms ease, color 150ms ease, transform 120ms ease;
+}
+.btn-ghost:hover {
+  border-color: var(--color-mist);
+  color: var(--color-paper-white);
+}
+.btn-ghost:active {
+  transform: scale(0.98);
+}
+
+/* Entrance: cards rise into place once, on mount. Never on scroll, never loops. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.4s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+/* Skeleton shimmer for loads whose final shape is known. */
+@keyframes shimmer {
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.05) 30%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.05) 70%
+  );
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.bar-fill {
+  transition: width 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal-blue);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(28, 108, 255, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .skeleton {
+    animation: none;
+  }
+  .bar-fill {
+    transition: none;
+  }
+  .btn-action,
+  .btn-ghost {
+    transition: none;
+  }
+  .btn-action:active,
+  .btn-ghost:active {
+    transform: none;
+  }
 }

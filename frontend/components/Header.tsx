@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
 import { robinhoodTestnet } from "@/lib/chain";
+import { IconShield, IconGauge, IconFile, IconVault, IconArrow } from "@/components/ui";
 
 const links = [
-  { href: "/", label: "Dashboard" },
-  { href: "/protect", label: "Protect" },
-  { href: "/notes", label: "Notes" },
-  { href: "/vault", label: "Vault" },
+  { href: "/", label: "Dashboard", Icon: IconGauge },
+  { href: "/protect", label: "Protect", Icon: IconShield },
+  { href: "/notes", label: "Notes", Icon: IconFile },
+  { href: "/vault", label: "Vault", Icon: IconVault },
 ];
 
 const CHAIN_NAMES: Record<number, string> = {
@@ -30,18 +31,19 @@ function ConnectButton() {
         {!onSupported ? (
           <button
             onClick={() => switchChain({ chainId: robinhoodTestnet.id })}
-            className="rounded-xl border border-action px-3 py-2 text-xs text-action"
+            className="rounded-full border border-action px-4 py-2 text-xs text-action transition-colors hover:bg-action/10"
           >
             Switch network
           </button>
         ) : (
-          <span className="hidden text-xs text-mist sm:inline">{CHAIN_NAMES[chainId]}</span>
+          <span className="hidden text-xs text-mist lg:inline">{CHAIN_NAMES[chainId]}</span>
         )}
-        <span className="rounded-xl border border-line px-3 py-2 text-xs text-fog">
+        <button
+          onClick={() => disconnect()}
+          title="Disconnect wallet"
+          className="tnum rounded-full border border-line px-4 py-2 text-xs text-fog transition-colors hover:border-mist hover:text-ink"
+        >
           {address.slice(0, 6)}…{address.slice(-4)}
-        </span>
-        <button onClick={() => disconnect()} className="text-xs text-mist hover:text-ink">
-          Exit
         </button>
       </div>
     );
@@ -52,9 +54,10 @@ function ConnectButton() {
     <button
       onClick={() => injectedConnector && connect({ connector: injectedConnector })}
       disabled={isPending || !injectedConnector}
-      className="btn-action rounded-xl px-4 py-2 text-sm"
+      className="btn-action inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm"
     >
       {isPending ? "Connecting…" : "Connect wallet"}
+      {!isPending ? <IconArrow className="h-4 w-4" /> : null}
     </button>
   );
 }
@@ -62,20 +65,60 @@ function ConnectButton() {
 export function Header() {
   const pathname = usePathname();
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-canvas/90 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-        <Link href="/" className="font-display text-lg font-bold tracking-tight">
-          Sherwood<span className="text-action">.</span>
-        </Link>
-        <nav className="hidden gap-6 text-sm text-fog sm:flex">
-          {links.map((l) => (
-            <Link key={l.href} href={l.href} className={pathname === l.href ? "text-ink" : "hover:text-ink"}>
-              {l.label}
-            </Link>
-          ))}
-        </nav>
-        <ConnectButton />
-      </div>
-    </header>
+    <>
+      <header className="sticky top-0 z-20 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-3.5 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-2 text-action">
+              <IconShield className="h-4.5 w-4.5" />
+            </span>
+            <span className="font-display text-lg font-bold tracking-tight">
+              Sherwood<span className="text-action">.</span>
+            </span>
+          </Link>
+
+          <nav className="hidden items-center gap-1 sm:flex" aria-label="Primary">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`rounded-full px-4 py-2 text-sm transition-colors duration-150 ${
+                  pathname === l.href ? "bg-surface-2 text-ink" : "text-fog hover:bg-white/[0.04] hover:text-ink"
+                }`}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+
+          <ConnectButton />
+        </div>
+      </header>
+
+      {/* Mobile tab bar — peers, not a drawer. Fixed, blurred, safe-area aware. */}
+      <nav
+        aria-label="Primary"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line/60 bg-canvas/90 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 backdrop-blur-xl sm:hidden"
+      >
+        <div className="mx-auto flex max-w-md items-stretch justify-around px-4">
+          {links.map((l) => {
+            const active = pathname === l.href;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`flex min-h-[44px] flex-1 flex-col items-center gap-1 py-1 transition-colors ${
+                  active ? "text-ink" : "text-mist"
+                }`}
+              >
+                <l.Icon className={`h-5 w-5 ${active ? "text-action" : ""}`} />
+                <span className="text-[10px] tracking-wide">{l.label}</span>
+                <span className={`h-0.5 w-4 rounded-full ${active ? "bg-action" : "bg-transparent"}`} />
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    </>
   );
 }

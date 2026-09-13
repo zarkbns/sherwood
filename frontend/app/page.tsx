@@ -2,16 +2,27 @@
 
 import { useAccount, useBalance } from "wagmi";
 import { formatUnits } from "viem";
+import Link from "next/link";
 import { Header } from "@/components/Header";
-import { StatCard, Empty } from "@/components/ui";
+import {
+  StatCard,
+  Skeleton,
+  EmptyState,
+  Pill,
+  ProgressBar,
+  Eyebrow,
+  IconShield,
+  IconFile,
+  IconArrow,
+} from "@/components/ui";
 import { useDeployed, useAssets, useNotes, useVaultStats, settlementTokenFor } from "@/lib/protocol";
-import { fmtPrice, fmtUsd18, fmtExpiry, isExpired } from "@/lib/format";
+import { fmtUsd18, fmtUsd18Compact, fmtQty, fmtPrice, fmtCountdown, isExpired } from "@/lib/format";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
   const { deployed, chainId } = useDeployed();
-  const { assets } = useAssets();
-  const { notes } = useNotes();
+  const { assets, isLoading: loadingAssets } = useAssets();
+  const { notes, isLoading: loadingNotes } = useNotes();
   const vault = useVaultStats();
   const st = settlementTokenFor(chainId);
 
@@ -21,80 +32,211 @@ export default function Dashboard() {
     query: { enabled: !!address && !!st?.address },
   });
 
+  const held = assets.filter((a) => a.balance !== undefined && a.balance > 0n);
+  const positionValue = held.reduce((sum, a) => sum + ((a.balance! * (a.price8 ?? 0n)) / 10n ** 8n), 0n);
+
   const mine = notes.filter((n) => address && n.owner.toLowerCase() === address.toLowerCase());
   const active = mine.filter((n) => n.status === 0);
   const totalProtected = active.reduce((sum, n) => sum + n.protectedUSD18, 0n);
+  const premiumSpent = mine.reduce((sum, n) => sum + n.premiumUSD18, 0n);
+
+  const utilization =
+    vault.totalDeposits !== undefined && vault.reserved !== undefined && vault.totalDeposits > 0n
+      ? Number(vault.reserved) / Number(vault.totalDeposits)
+      : 0;
+  const tok = (value: bigint | undefined) =>
+    value === undefined
+      ? "—"
+      : `${Number(formatUnits(value, st?.decimals ?? 6)).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${st?.symbol ?? ""}`.trim();
 
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-5 pb-28 pt-8 sm:px-6 sm:pb-14 sm:pt-12">
         {!deployed ? (
-          <Empty
+          <EmptyState
+            icon={<IconShield className="h-6 w-6" />}
             title="Not deployed on this network"
             body="Sherwood is live on Robinhood Chain testnet only. Switch networks to continue — addresses are set at deploy time."
           />
         ) : (
           <>
-            <h1 className="font-display text-4xl font-bold tracking-tight">
-              Your position<span className="text-action">.</span>
-            </h1>
-            <p className="mt-2 text-sm text-mist">Keep the upside. Define the downside.</p>
+            {/* Hero — the number you came for. */}
+            <section className="rise">
+              <Eyebrow>Portfolio · Robinhood Chain testnet</Eyebrow>
+              <div className="tnum mt-3 font-display text-5xl font-bold leading-none tracking-tight sm:text-6xl">
+                {isConnected ? fmtUsd18Compact(positionValue) : "—"}
+              </div>
+              <p className="mt-3 text-sm text-mist">
+                {isConnected
+                  ? `${held.length} position${held.length === 1 ? "" : "s"} held · ${active.length} protection${active.length === 1 ? "" : "s"} active · upside stays yours`
+                  : "Connect a wallet to see your positions and protection."}
+              </p>
+            </section>
 
-            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <StatCard label="Active protection" value={fmtUsd18(totalProtected)} sub={`${active.length} active note${active.length === 1 ? "" : "s"}`} />
+            {/* Stats */}
+            <section className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
               <StatCard
-                label="Stock held"
-                value={assets
-                  .filter((a) => a.balance && a.balance > 0n)
-                  .map((a) => `${Number(formatUnits(a.balance!, a.decimals))} ${a.symbol}`)
-                  .join(" · ") || "—"}
-                sub="tokenized equities"
+                label="Protected floor"
+                value={isConnected ? fmtUsd18Compact(totalProtected) : "—"}
+                sub={`${active.length} active note${active.length === 1 ? "" : "s"}`}
+                delay={60}
               />
               <StatCard
-                label={st ? `${st.symbol} balance` : "Settlement token"}
-                value={stBalance ? Number(formatUnits(stBalance.value, stBalance.decimals)).toFixed(2) : "—"}
+                label="Premium invested"
+                value={isConnected ? fmtUsd18Compact(premiumSpent) : "—"}
+                sub="all notes, spent or active"
+                delay={120}
+              />
+              <StatCard
+                label={`${st?.symbol ?? "Settlement"} balance`}
+                value={stBalance ? fmtCompactToken(stBalance.value, stBalance.decimals) : "—"}
                 sub="available for premiums"
+                delay={180}
               />
-            </div>
+            </section>
 
-            <h2 className="mt-12 font-display text-xl font-bold">Your notes</h2>
-            <div className="mt-4 space-y-3">
-              {mine.length === 0 ? (
-                <Empty
-                  title="No protection yet"
-                  body="Buy your first Protection Note: pick an asset, a floor, and a duration. All upside stays yours."
-                />
-              ) : (
-                mine.map((n) => {
-                  const asset = assets.find((a) => a.token === n.asset);
-                  return (
-                    <div key={n.id.toString()} className="inset-card flex flex-wrap items-center justify-between gap-4 rounded-3xl p-5">
-                      <div>
-                        <div className="font-display font-bold">
-                          {asset?.symbol ?? "asset"} · {Number(n.level) / 1e16}% floor
-                        </div>
-                        <div className="mt-1 text-xs text-mist">
-                          entry {fmtPrice(n.entryPrice)} · expires {fmtExpiry(n.expiry)}
-                        </div>
+            {/* Holdings */}
+            <section className="mt-12">
+              <div className="flex items-baseline justify-between">
+                <Eyebrow>Your holdings</Eyebrow>
+                {isConnected && held.length > 0 ? (
+                  <Link href="/protect" className="inline-flex items-center gap-1 text-xs text-action hover:underline">
+                    Protect a position <IconArrow className="h-3.5 w-3.5" />
+                  </Link>
+                ) : null}
+              </div>
+              <div className="mt-3 space-y-2">
+                {loadingAssets ? (
+                  <>
+                    <SkeletonRow />
+                    <SkeletonRow />
+                  </>
+                ) : held.length === 0 ? (
+                  <EmptyState
+                    icon={<IconShield className="h-6 w-6" />}
+                    title="No stock positions yet"
+                    body="Grab testnet shares from the Robinhood Chain testnet faucet, then come back — protection requires holding the stock you insure."
+                    actionHref="/protect"
+                    actionLabel="See what Sherwood covers"
+                  />
+                ) : (
+                  held.map((a, i) => (
+                    <div
+                      key={a.token}
+                      className="inset-card inset-card--press rise flex items-center justify-between gap-4 rounded-2xl px-4 py-3.5"
+                      style={{ animationDelay: `${i * 50}ms` }}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 font-display text-xs font-bold text-fog">
+                          {a.symbol.slice(0, 2)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-ink">{a.symbol}</span>
+                          <span className="tnum block text-xs text-mist">{fmtQty(a.balance, a.decimals)} held</span>
+                        </span>
                       </div>
                       <div className="text-right">
-                        <div className="font-display">{fmtUsd18(n.protectedUSD18)} protected</div>
-                        <div className={`mt-1 text-xs ${n.status === 1 ? "text-mist" : isExpired(n.expiry) ? "text-action" : "text-fog"}`}>
-                          {n.status === 1 ? "settled" : isExpired(n.expiry) ? "ready to settle" : "active"}
+                        <div className="tnum text-sm text-ink">
+                          {a.price8 !== undefined ? fmtUsd18((a.balance! * a.price8) / 10n ** 8n) : "—"}
                         </div>
+                        <div className="tnum text-xs text-mist">{fmtPrice(a.price8)}</div>
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            </section>
 
-            <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <StatCard label="Vault deposits" value={fmtTokenUnits(vault.totalDeposits, st?.decimals ?? 6, st?.symbol)} />
-              <StatCard label="Reserved" value={fmtTokenUnits(vault.reserved, st?.decimals ?? 6, st?.symbol)} sub="collateral backing active notes" />
-              <StatCard label="Capacity" value={fmtTokenUnits(vault.availableCapacity, st?.decimals ?? 6, st?.symbol)} sub="available for new protection" />
-            </div>
+            {/* Active protection */}
+            <section className="mt-12">
+              <div className="flex items-baseline justify-between">
+                <Eyebrow>Active protection</Eyebrow>
+                <Link href="/notes" className="inline-flex items-center gap-1 text-xs text-action hover:underline">
+                  All notes <IconArrow className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+              <div className="mt-3 space-y-2">
+                {loadingNotes ? (
+                  <SkeletonRow />
+                ) : active.length === 0 ? (
+                  <EmptyState
+                    icon={<IconFile className="h-6 w-6" />}
+                    title="Nothing protected yet"
+                    body="Buy a Protection Note: define a floor on a position you hold, keep every dollar of upside. The quote is priced live by the contract."
+                    actionHref="/protect"
+                    actionLabel="Buy protection"
+                  />
+                ) : (
+                  active.map((n, i) => {
+                    const asset = assets.find((a) => a.token === n.asset);
+                    const expired = isExpired(n.expiry);
+                    return (
+                      <div
+                        key={n.id.toString()}
+                        className="inset-card rise rounded-2xl px-4 py-4"
+                        style={{ animationDelay: `${i * 50}ms` }}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm text-ink">
+                              <span className="font-display font-bold">{asset?.symbol ?? "asset"}</span>
+                              <span className="text-mist"> · </span>
+                              <span className="tnum">{Number(n.level) / 1e16}% floor</span>
+                            </div>
+                            <div className="tnum mt-1 text-xs text-mist">
+                              {fmtQty(n.amount, asset?.decimals ?? 18)} · entry {fmtPrice(n.entryPrice)} ·{" "}
+                              {expired ? "matured" : fmtCountdown(n.expiry)}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="tnum text-sm text-ink">{fmtUsd18Compact(n.protectedUSD18)}</div>
+                            <div className="mt-1.5">
+                              <Pill tone={expired ? "ready" : "neutral"}>{expired ? "ready" : "active"}</Pill>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            {/* Vault strip */}
+            <section className="mt-12">
+              <Eyebrow>Vault</Eyebrow>
+              <div className="inset-card rise mt-3 rounded-3xl p-6" style={{ animationDelay: "100ms" }}>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-xs text-mist">Deposits</div>
+                    <div className="tnum mt-1 font-display text-lg font-bold">{tok(vault.totalDeposits)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-mist">Reserved</div>
+                    <div className="tnum mt-1 font-display text-lg font-bold">{tok(vault.reserved)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-mist">Capacity</div>
+                    <div className="tnum mt-1 font-display text-lg font-bold">{tok(vault.availableCapacity)}</div>
+                  </div>
+                </div>
+                <div className="mt-5">
+                  <div className="mb-1.5 flex justify-between text-[11px] text-mist">
+                    <span>Utilization</span>
+                    <span className="tnum">{(utilization * 100).toFixed(1)}%</span>
+                  </div>
+                  <ProgressBar pct={utilization} tone={utilization > 0.8 ? "action" : "mist"} />
+                </div>
+                <Link href="/vault" className="mt-4 inline-flex items-center gap-1 text-xs text-action hover:underline">
+                  Back the vault, earn premiums <IconArrow className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </section>
+
+            <p className="mt-10 text-center text-[11px] text-mist/70">
+              All prices read from on-chain feeds · testnet prices are disclosed demo data
+            </p>
           </>
         )}
       </main>
@@ -102,8 +244,27 @@ export default function Dashboard() {
   );
 }
 
-function fmtTokenUnits(value: bigint | undefined, decimals: number, symbol?: string): string {
-  if (value === undefined) return "—";
-  const num = Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: 2 });
-  return symbol ? `${num} ${symbol}` : num;
+function fmtCompactToken(value: bigint, decimals: number): string {
+  const n = Number(formatUnits(value, decimals));
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e4) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function SkeletonRow() {
+  return (
+    <div className="inset-card flex items-center justify-between rounded-2xl px-4 py-3.5">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 w-9 rounded-xl" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Skeleton className="ml-auto h-3.5 w-20" />
+        <Skeleton className="ml-auto h-3 w-12" />
+      </div>
+    </div>
+  );
 }
