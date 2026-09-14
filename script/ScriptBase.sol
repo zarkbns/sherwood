@@ -64,6 +64,14 @@ abstract contract ScriptBase {
         return abi.decode(data, (uint256));
     }
 
+    /// @notice Required uint env var: reverts when unset instead of silently applying a
+    ///         fallback. For knobs where the value chosen IS the thing being demonstrated.
+    function vmEnvUintRequired(string memory key) internal returns (uint256) {
+        (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("envUint(string)", key));
+        require(ok, "envUint failed");
+        return abi.decode(data, (uint256));
+    }
+
     /// @notice Address `forge script` signs from for this private key.
     function vmAddr(uint256 privateKey) internal returns (address) {
         (bool ok, bytes memory data) = VM_ADDRESS.call(abi.encodeWithSignature("addr(uint256)", privateKey));
