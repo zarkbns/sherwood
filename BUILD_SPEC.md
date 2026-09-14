@@ -19,12 +19,17 @@ All USD math is internally **18 decimals** (USD-18). Prices arrive from Chainlin
 ```
 valueUSD18        = amount18 × price8 / 1e8                      // current USD value of position
 protectedUSD18    = amount18 × entryPrice8 × level18 / 1e18 / 1e8 // floor value
-payoutUSD18       = max(0, protectedUSD18 − valueUSD18)
 premiumUSD18      = valueUSD18 × rateBps / 10_000
 rateBps           = baseBps + tierBps(level) + durationBps(duration)
 tokenLiability    = protectedUSD18 → settlement-token decimals   // reserved at creation
+
+// Settlement narrows the basis to the position the owner still holds:
+eligibleAmount18  = min(amount18, stock.balanceOf(owner))        // read at settle, never stored
+payoutUSD18       = max(0, protectedUSD18(eligible) − valueUSD18(eligible))
 payoutToken       = payoutUSD18 → settlement-token decimals      // transferred at settlement
 ```
+
+A note protects a **real position**, so the payout can only ever cover the share of it the owner still holds when the note settles. Sold stock is unprotected stock: the payout shrinks proportionally, and a fully deserted position pays nothing. The note still settles and the **full** `tokenLiability` is released in every case — eligibility may only ever reduce a payout, never strand a reserve. Premium and liability at creation are computed on the full `amount18` and are never recomputed.
 
 Token-unit conversion: `tokenAmount = usd18 / 10^(18 − tokenDecimals)` (USDG = 6 dec → /1e12, verified via `decimals()` on-chain on both Robinhood networks; the contracts never assume a fixed value — they read `decimals()` from the settlement token).
 
@@ -34,6 +39,8 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 - Price settles $90 → payout = max(0, 400 − 450) = 0 ✓
 - Price rises $120 → payout = 0, user keeps full upside ✓
 - Premium: value 500e18 × (100 + 100 + 50)/10_000 = $12.50 ✓
+- Owner sold down to 2 TSLA, settles $60 → eligible 2e18: floor 160 − current 120 = **$40** payout, and the full $400 reserve still releases ✓
+- Owner sold all 5 TSLA, settles $60 → eligible 0: **$0** payout, the note still settles, the full $400 reserve releases ✓
 
 ### Premium rate table (V1, protocol-defined, transparent)
 
@@ -99,9 +106,9 @@ Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premium
 **Notes are deliberately non-transferable.** Protection is priced for the buyer, so `settle()` always pays the recorded `owner`. This removes the entire ERC-721 surface (approvals, receiver hooks, transfer reentrancy) with no product loss — there is no secondary-market requirement in V1. If transferability ever becomes a real requirement, it is an explicit V2 decision, not an accident of the token standard.
 
 - `create(asset, amount, level, duration)` — full flow above; validates: asset registered + active, amount > 0, supported level/duration, then **position guard: caller must hold `amount` of the asset token** (`balanceOf(msg.sender) ≥ amount`, else `InsufficientPosition`). The stock is verified, never transferred or custodied — Sherwood protects a position, it doesn't take it. This keeps the product a real downside hedge for tokenized-equity holders, not a naked speculative bet. Settlement remains cash-settled on the price difference. The id is consumed (`nextId += 1`) *before* `vault.reserveFor`, so a re-entrant create claims the next id instead of overwriting the note in flight and stranding its reserve.
-- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, marks SETTLED, then pays the recorded owner via the vault.
+- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Marks SETTLED and captures the recipient *before* any external read (so a hook-bearing asset cannot re-enter the same id and draw its liability twice), reads the settlement price, computes the payout against `eligibleAmount = min(amount18, stock.balanceOf(owner))`, then pays the recorded owner and releases the **full** `liabilityToken` through the vault. Eligibility shrinks the payout only — it never blocks the settlement, never mutates the note, and never leaves a reserve stranded.
 - `quote(asset, amount, level, duration)` — live on-chain quote (premium, floor, expiry) so the UI never recomputes rates or prices client-side.
-- `calculatePayout(note, settlementPrice8)` — pure, spec formula.
+- `calculatePayout(note, settlementPrice8)` — capped by the owner's current holding, on the same basis as `settle()`, so the view can never promise more than settlement will pay.
 - `isSettlable(noteId)` — derived view: exists + ACTIVE + past expiry.
 - Status: `ACTIVE → SETTLED` (payout can be zero; a SETTLABLE state is derivable from expiry, not stored).
 

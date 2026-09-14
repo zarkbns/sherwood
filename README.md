@@ -33,12 +33,13 @@ Sherwood fixes this: **hold stock tokens, buy protection, keep upside, define do
 ### The Formula
 
 ```
-protectedValue = amount × entryPrice × protectionLevel
-currentValue = amount × settlementPrice
+eligibleAmount = min(note.amount, stock tokens the holder still owns at settlement)
+protectedValue = eligibleAmount × entryPrice × protectionLevel
+currentValue = eligibleAmount × settlementPrice
 payout = max(0, protectedValue - currentValue)
 ```
 
-**Key insight:** You keep all upside. Sherwood only covers the gap below your floor. The maximum possible payout is the floor value itself (`protectedValue`) — that's what the vault reserves per note.
+**Key insight:** You keep all upside. Sherwood only covers the gap below your floor. The maximum possible payout is the floor value itself (`protectedValue`) — that's what the vault reserves per note. And because a note protects a *real position*, the payout covers only the shares you still hold when it settles: sell half, get half the payout; sell all, get nothing. The reserved collateral releases either way.
 
 ---
 
@@ -110,9 +111,9 @@ The buffer is part of the guarantee, not a target the owner can quietly spend: `
 Protection Notes settle using verified price data from Chainlink:
 
 1. At expiry, Chainlink oracle returns settlement price (freshness- and sequencer-uptime-checked)
-2. Contract calculates: `payout = max(0, protectedValue - currentValue)`
+2. Contract calculates: `payout = max(0, protectedValue - currentValue)` on `eligibleAmount` — the shares the holder still owns at settlement
 3. Note status → SETTLED
-4. Vault executes USDG transfer (or zero if price stayed above floor)
+4. Vault executes USDG transfer (zero if the price stayed above the floor, or if the position was closed) and releases the note's full reserved liability
 
 Prices are never user-supplied — they always come from Chainlink. A stale price is not silently used: the oracle checks each feed's round freshness and **reverts** if it's too old, so settlement simply waits for a fresh round rather than settling on frozen data. No contract can promise a price source is never stale; Sherwood guarantees it never *acts* on a stale one.
 
@@ -362,7 +363,7 @@ ACTIVE (waiting for expiry)
   │
   └── Price < Floor
        ↓
-     SETTLED (payout = floor - current)
+     SETTLED (payout = floor - current, on the shares still held)
 ```
 
 ---
