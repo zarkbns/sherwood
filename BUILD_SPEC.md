@@ -169,7 +169,28 @@ Every state transition emits. Settlement always emits `NoteSettled` with the exa
 
 **Oracle env** (`script/Deploy.s.sol`): `SEQUENCER_UPTIME_FEED` (optional — unset means the gate is off, and the deploy log says so out loud) and `SEQUENCER_GRACE_PERIOD` (default 3600 s). Both are read back from chain after deploy and the script fails if they did not land.
 
-Oracle facts: feeds use standard `AggregatorV3.latestRoundData()`; USD feeds are 8 decimals (now enforced by the registry); updates run 24/5 with **no heartbeats off-hours** — so `maxStaleness` per asset (default 72h, owner-capped at 7 days) is the primary guard, and outage-frozen prices are rejected naturally. Robinhood docs also recommend an L2 sequencer-uptime check before trusting prices; `ProtectionOracle` implements it as specified in §4, and it goes live on any chain whose feed address is supplied at deploy time.
+Oracle facts: feeds use standard `AggregatorV3.latestRoundData()`; USD feeds are 8 decimals (now enforced by the registry); updates run 24/5 with **no heartbeats off-hours** — so `maxStaleness` per asset (default 72h, owner-capped at 7 days) is the primary guard, and outage-frozen prices are rejected naturally.
+
+**L2 sequencer uptime: no feed exists on Robinhood Chain (verified 2026-09-14).** Four independent checks agree:
+
+1. Chainlink's L2 Sequencer Uptime Feeds page lists 11 networks (Arbitrum One, Base, Celo, Mantle, MegaETH, Metis, OP, Scroll, Soneium, X Layer, zkSync) and states Chainlink *"is no longer expanding L2 Sequencer Uptime Feeds to additional networks"*. Robinhood Chain is not among them.
+2. Chainlink's own address-book data for this chain — `reference-data-directory.vercel.app/feeds-robinhood-mainnet.json`, 57 feeds — contains no `sequencer` or `uptime` string in any field of any record.
+3. Robinhood's Oracles & Price Feeds page *mandates* the check (`require(sequencerStatus == 0)` plus a grace period on `startedAt`) but publishes no address to satisfy it.
+4. Robinhood's protocol-contracts page lists no oracle or pause contract; `oraclePaused()` reverts on both a stock token and a feed proxy, so there is no chain-native substitute.
+
+Consequence, stated plainly: the gate is correct code with no feed to point at, so it ships off on both networks and **`maxStaleness` is Sherwood's only price-freshness protection here**. The marginal loss is small for this protocol specifically — equity feeds are 24/5 with no off-hours heartbeats, so a legitimately closed-market price and an outage-frozen price are already indistinguishable inside the 72 h bound, and an uptime feed would only have caught outages *shorter* than that bound. A sequencer outage also stops L2 block production outright on this Orbit rollup, so nothing can be read or written during it; the real residual exposure is the restart burst, which the grace window would have covered had a feed existed.
+
+**Mainnet feed addresses (proxy = the `AggregatorV3` entry point), read live from `rpc.mainnet.chain.robinhood.com` on 2026-09-14, chainId 4663 confirmed, all `decimals() == 8`:**
+
+| Asset | Feed proxy | `description()` |
+|---|---|---|
+| TSLA | `0x4A1166a659A55625345e9515b32adECea5547C38` | RHTSLA / USD |
+| AMZN | `0xD5a1508ceD74c084eBf3cBe853e2C968fB2a651C` | Robinhood AMZN / USD |
+| PLTR | `0x820ABedFF239034956B7A9d2F0a331f9F075eB4c` | Robinhood PLTR / USD |
+| AMD | `0x943A29E7ae51A4798823ca9eEd2ed533B2A22C72` | RHAMD / USD |
+| NFLX | **none — not published on this chain** | — |
+
+A mainnet launch therefore cannot support NFLX today despite it being in the initial asset list: the chain publishes 35 equity feeds (AAPL AMD AMZN ASML BABA CLSK COIN CRCL CRWV DELL EWY GME GOOGL INTC IONQ META MSFT MSTR MU NBIS NVDA ORCL PLTR QQQ RGTI RKLB SGOV SLV SNDK SPCX SPY TSLA TSM USAR USO) and NFLX is not one of them. Drop it or substitute from that list at mainnet deploy; do not register a placeholder.
 
 **Stock token addresses** are registered per network in AssetRegistry at deploy via `TOKEN_<SYMBOL>` / `FEED_<SYMBOL>` env — the protocol is asset-agnostic; whatever tokenized-stock contracts exist on the chain get registered with their feed.
 
