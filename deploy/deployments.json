@@ -65,7 +65,25 @@
         "note.create": "0xa909643d305f6a7195d0397577f3c4e333ca66d6a902cb166e1532eb0fb0ebf4"
       },
       "readBack": "totalDeposits 50562500 = 50e6 deposit + premium; reserved 20000000; availableCapacity 20450000 = 80% of deposits minus reserved; vault MockUSDG balance 50562500 (custody == accounting, reserved fully backed); buyer 949437500; status ACTIVE; isSettlable false until expiry",
-      "next": "script/DemoSettle.s.sol NOTE_ID=1 after expiry (Mon 2026-09-14 08:16 WAT, scheduled job auimo4xo fires 08:25) — drops the DemoFeed to $100, so the note pays out max(0, 20 - 10) = 10e6 MockUSDG"
+      "next": "SETTLED 2026-09-14 — see settlement",
+      "settlement": {
+        "settledAt": "2026-09-14",
+        "txs": {
+          "DemoFeed.set(100e8)": "0x46f2c8c6fc56ccaa15cf3ab34931e5b9e6f2416411dc3b3d57ed409861809a86",
+          "note.settle(1)": "0x79c3366e344d5fe2d3264e51099f0e4a6e20f2bf6703816aa3d51115357c9a80"
+        },
+        "settlementPrice": "100e8 ($100, DemoFeed dropped from $250)",
+        "payoutToken": "10000000 MockUSDG ($10.00 = max(0, floor 20 - current 10))",
+        "noteStatus": "SETTLED (1)",
+        "vaultTotalDeposits": "40843750 (pre-settle 50843750 - 10e6)",
+        "vaultReserved": "10000000 (pre-settle 30000000; note 1's full 20e6 released, the 10e6 left is note 2 still ACTIVE)",
+        "vaultCustody": "40843750 == totalDeposits — reserved collateral fully backed",
+        "availableCapacity": "22675000",
+        "buyerMockUSDG": "1949156250 -> 1959156250 (+10e6 payout)",
+        "events": "ERC20 Transfer vault->buyer 10000000; CapacityReleased(1, 20000000); PayoutExecuted(1, buyer, 10000000); NoteSettled(1, 100e8, 10000000, buyer)",
+        "how": "Two cast send calls, not forge script --broadcast. The forge broadcast hung for hours on this device and submitted nothing (its run-latest.json carried no tx hashes and the deployer nonce never moved), so each leg was sent and verified individually.",
+        "baselineNote": "Note 1 settled AFTER note 2 existed, so the real post-state is 40843750 deposits / 10000000 reserved / 1959156250 buyer. The 40562500 / 0 / 1959437500 in the original plan predates note 2's 281250 premium and 10e6 reserve."
+      }
     },
     {
       "id": 2,
@@ -84,7 +102,7 @@
         "note.create": "0xdd07a6b84f2fea4eb37ecdfe0beeca1b36ca2e7ff6f5745222173d0e983a6a76"
       },
       "readBack": "nextId 2; reserved 30000000 = 20e6 + 10e6; totalDeposits 50843750 == vault custody; availableCapacity 10675000; buyer 1949156250 = 1949437500 - premium; status ACTIVE",
-      "next": "script/DemoSettle.s.sol NOTE_ID=2 DEMO_SETTLE_PRICE=200e8 after expiry (Mon 2026-09-14 20:46 WAT, scheduled job fires 20:56) — settling at exactly the floor pays 0 and releases the reserve with no transfer"
+      "next": "Settle after expiry. The chain expiry is 1789410976 = Mon 2026-09-14 19:36:16 WAT (the 20:46 WAT recorded here earlier was wrong). Scheduled job g68ahfkb fires 19:47. Must run DEMO_SETTLE_PRICE=200e8, NOT the script default 100e8 — at $100 this note pays $5 and the zero-payout leg is lost. Baseline is post-note-1: totalDeposits 40843750, reserved 10000000, buyer 1959156250. Prefer two cast send calls; forge script --broadcast hung here and submitted nothing."
     }
   ],
   "config": {
