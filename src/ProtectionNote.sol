@@ -107,10 +107,15 @@ contract ProtectionNote {
         uint256 liabilityToken = ProtectionMath.toTokenUnits(protectedUSD18, tokenDecimals);
 
         noteId = nextId + 1;
+        // Consume the id before the vault call. reserveFor pulls the premium from the
+        // payer, and a settlement token with a transfer hook could re-enter create()
+        // through that pull: with the id already taken the re-entrant call claims the
+        // next one instead of overwriting this note and double-reserving its id. A
+        // revert anywhere below still rolls the id back with the rest of the call.
+        nextId = noteId;
         // Capacity check and premium collection happen inside the vault, atomically,
         // before the note exists. If anything reverts, nothing is collected.
         vault.reserveFor(noteId, msg.sender, premiumToken, liabilityToken);
-        nextId = noteId;
 
         _record(noteId, msg.sender, asset, amount, price8, level, duration, premiumUSD18, protectedUSD18, liabilityToken);
     }

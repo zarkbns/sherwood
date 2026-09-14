@@ -32,6 +32,7 @@ contract SherwoodVault is Ownable {
     error PayoutExceedsLiability();
     error NotNoteContract();
     error BufferTooHigh();
+    error BufferBreachesReserves();
     error InvalidAmount();
     error TransferFailed();
     error EncumberedFunds();
@@ -57,15 +58,25 @@ contract SherwoodVault is Ownable {
     ///         Capacity is checked before any token movement; if it fails the whole
     ///         call reverts with nothing collected. onlyNote because liability
     ///         accounting must stay in sync with note state.
+    ///
+    ///         The check is `premium + liability <= availableCapacity()`, which is the
+    ///         spec precondition tightened by the premium itself; it implies invariant 1
+    ///         (`premium + liability <= usable - reserved` => `reserved + liability <=
+    ///         (deposits + premium) * (1 - buffer)`) with room to spare.
+    ///
+    ///         State is written before the token pull (checks-effects-interactions):
+    ///         a settlement token with a transfer hook could otherwise re-enter and pass
+    ///         the same capacity check twice, reserving twice against one balance.
     function reserveFor(uint256 noteId, address payer, uint256 premium, uint256 liability) external onlyNote {
         if (premium + liability > availableCapacity()) revert InsufficientCapacity();
+
+        totalDeposits += premium;
+        reserved += liability;
 
         if (premium > 0) {
             bool ok = token.transferFrom(payer, address(this), premium);
             if (!ok) revert TransferFailed();
-            totalDeposits += premium;
         }
-        reserved += liability;
 
         emit CapacityReserved(noteId, payer, premium, liability);
     }
@@ -73,6 +84,10 @@ contract SherwoodVault is Ownable {
     /// @notice Settle a note: pay out to the recipient and release the reserved
     ///         liability. `payout <= liability` is guaranteed by ProtectionMath
     ///         (payout = floor - current <= floor = liability) and re-checked here.
+    ///
+    ///         Both effect writes land before the token transfer (checks-effects-
+    ///         interactions), so a re-entrant settlement during the transfer can never
+    ///         observe a reserve or deposit total that still counts this payout.
     function settlePayout(uint256 noteId, address recipient, uint256 liability, uint256 payout)
         external
         onlyNote
@@ -81,10 +96,11 @@ contract SherwoodVault is Ownable {
         if (payout > token.balanceOf(address(this))) revert InsufficientVaultBalance();
 
         reserved -= liability;
+        totalDeposits -= payout;
+
         if (payout > 0) {
             bool ok = token.transfer(recipient, payout);
             if (!ok) revert TransferFailed();
-            totalDeposits -= payout;
         }
 
         emit CapacityReleased(noteId, liability);
@@ -97,17 +113,20 @@ contract SherwoodVault is Ownable {
         return usable > reserved ? usable - reserved : 0;
     }
 
-    function freeBalance() external view returns (uint256) {
-        uint256 usable = totalDeposits - (totalDeposits * bufferBps) / 10_000;
-        return usable > reserved ? usable - reserved : 0;
-    }
-
-    /// @notice Owner withdrawal of unencumbered, unreserved surplus only.
+    /// @notice Owner withdrawal, capped at `availableCapacity()` so invariant 1 keeps
+    ///         holding after the withdrawal: taking deposits out lowers the usable line
+    ///         by exactly the same amount it lowers the deposit total, so the buffer and
+    ///         the reserved collateral both stay covered. Anything above that line is
+    ///         either reserved for an active note or part of the reserve buffer.
+    ///
+    ///         The buffer is therefore never withdrawable by accident. Winding the vault
+    ///         down is an explicit two-step: settle the notes, `setBufferBps(0)`, then
+    ///         withdraw everything.
     function withdrawSurplus(address to, uint256 amount) external onlyOwner {
-        if (amount > totalDeposits - reserved) revert EncumberedFunds();
+        if (amount > availableCapacity()) revert EncumberedFunds();
+        totalDeposits -= amount;
         bool ok = token.transfer(to, amount);
         if (!ok) revert TransferFailed();
-        totalDeposits -= amount;
         emit Withdrawn(to, amount);
     }
 
@@ -123,6 +142,13 @@ contract SherwoodVault is Ownable {
 
     function _setBuffer(uint256 newBufferBps) internal {
         if (newBufferBps > MAX_BUFFER_BPS) revert BufferTooHigh();
+        // Raising the buffer lowers the usable line, so a buffer that is fine for an
+        // empty vault can strand collateral that was legitimately reserved under a
+        // smaller one. Invariant 1 has to hold at all times, including immediately
+        // after this call, so the raise is refused rather than allowed to breach it.
+        // Lowering the buffer only ever raises the usable line and is always accepted.
+        uint256 usable = totalDeposits - (totalDeposits * newBufferBps) / 10_000;
+        if (usable < reserved) revert BufferBreachesReserves();
         bufferBps = newBufferBps;
         emit BufferChanged(newBufferBps);
     }

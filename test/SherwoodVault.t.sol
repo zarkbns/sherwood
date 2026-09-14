@@ -26,12 +26,16 @@ contract SherwoodVaultTest is TestBase {
         vmLabel(recipient, "payout recipient");
     }
 
-    function _deposit(uint256 amount) internal {
+    function _depositInto(SherwoodVault v, uint256 amount) internal {
         usdg.mint(depositor, amount);
         vmStartPrank(depositor);
-        usdg.approve(address(vault), amount);
-        vault.deposit(amount);
+        usdg.approve(address(v), amount);
+        v.deposit(amount);
         vmStopPrank();
+    }
+
+    function _deposit(uint256 amount) internal {
+        _depositInto(vault, amount);
     }
 
     function _reserve(uint256 noteId, uint256 premium, uint256 liability) internal {
@@ -76,7 +80,6 @@ contract SherwoodVaultTest is TestBase {
 
         // 1000 - 20% = 800 usable
         assertEq(vault.availableCapacity(), 800e18, "capacity should be 800");
-        assertEq(vault.freeBalance(), 800e18, "free balance should be 800");
     }
 
     function test_AvailableCapacity_ClampsAtZero() public {
@@ -212,19 +215,55 @@ contract SherwoodVaultTest is TestBase {
     }
 
     // ------------------------------------------------------------------
-    // withdrawSurplus: only unencumbered funds (invariant 2)
+    // withdrawSurplus: only funds above reserved collateral AND the buffer
     // ------------------------------------------------------------------
 
-    function test_WithdrawSurplus_AllowsUnencumberedOnly() public {
+    function test_WithdrawSurplus_PreservesReservedCollateralAndBuffer() public {
         _fundedAndReserved(1000e18, 12.5e18, 400e18);
 
-        // unencumbered = 1012.5 - 400 = 612.5
-        vault.withdrawSurplus(depositor, 612.5e18);
-        assertEq(usdg.balanceOf(depositor), 612.5e18, "surplus should move");
+        // deposits 1012.5, reserved 400, buffer 20% -> usable 810, so 410 is takeable
+        assertEq(vault.availableCapacity(), 410e18, "surplus should equal free capacity");
 
-        // Next wei is reserved collateral -> must revert
+        // One wei past the line is either reserved collateral or the reserve buffer
         vmExpectRevert(SherwoodVault.EncumberedFunds.selector);
-        vault.withdrawSurplus(depositor, 1);
+        vault.withdrawSurplus(depositor, 410e18 + 1);
+
+        vault.withdrawSurplus(depositor, 410e18);
+        assertEq(usdg.balanceOf(depositor), 410e18, "surplus should move");
+        assertEq(vault.reserved(), 400e18, "reserved collateral must not move");
+        assertLe(vault.reserved(), 602.5e18 - (602.5e18 * 2000) / 10_000, "inv1 must survive the withdrawal");
+
+        // Repeated cap withdrawals converge on reserved == usable and never breach it:
+        // the buffer is what capacity charges for, so it cannot be withdrawn away.
+        for (uint256 i = 0; i < 8; i++) {
+            uint256 takeable = vault.availableCapacity();
+            if (takeable == 0) break;
+            vault.withdrawSurplus(depositor, takeable);
+            assertLe(
+                vault.reserved(),
+                vault.totalDeposits() - (vault.totalDeposits() * 2000) / 10_000,
+                "inv1 must hold through repeated withdrawals"
+            );
+        }
+        assertGe(vault.totalDeposits(), 500e18, "buffer must survive: the deposits floor is reserved / (1 - buffer)");
+        assertEq(usdg.balanceOf(address(vault)), vault.totalDeposits(), "custody must still track accounting");
+    }
+
+    function test_WithdrawSurplus_WindDownNeedsAnExplicitBufferClear() public {
+        _fundedAndReserved(1000e18, 12.5e18, 400e18);
+
+        // With a buffer configured, the buffer is locked by design, not by accident
+        vmExpectRevert(SherwoodVault.EncumberedFunds.selector);
+        vault.withdrawSurplus(depositor, 612.5e18);
+
+        // Clearing the buffer is the explicit wind-down step that unlocks the rest
+        vault.setBufferBps(0);
+        assertEq(vault.availableCapacity(), 612.5e18, "reserved-only cap once the buffer clears");
+
+        vault.withdrawSurplus(depositor, 612.5e18);
+        assertEq(vault.totalDeposits(), 400e18, "only reserved collateral should remain");
+        assertEq(vault.reserved(), 400e18, "reserved collateral must stay fully backed");
+        assertEq(usdg.balanceOf(address(vault)), 400e18, "custody must cover the reserve");
     }
 
     function test_WithdrawSurplus_RevertsWhenNotOwner() public {
@@ -243,6 +282,45 @@ contract SherwoodVaultTest is TestBase {
 
         vmExpectRevert(SherwoodVault.BufferTooHigh.selector);
         vault.setBufferBps(5001);
+    }
+
+    /// @dev Raising the buffer lowers the usable line, so reserves taken under a smaller
+    ///      buffer can end up sitting above it. That is invariant 1 broken by an admin
+    ///      call rather than by any user, so the raise is refused outright.
+    function test_SetBufferBps_RejectsARaiseThatWouldStrandReserves() public {
+        SherwoodVault open = new SherwoodVault(usdg, 0); // a vault allowed to sell to full coverage
+        open.setNoteContract(note);
+        _depositInto(open, 1000e18);
+
+        vmPrank(note);
+        open.reserveFor(1, buyer, 0, 1000e18); // buffer 0 -> the whole book may be sold
+        assertEq(open.availableCapacity(), 0, "fully committed");
+        assertEq(open.reserved(), 1000e18, "entire deposit reserved");
+
+        // 20% of 1000 leaves 800 usable against 1000 reserved: invariant 1 would break
+        vmExpectRevert(SherwoodVault.BufferBreachesReserves.selector);
+        open.setBufferBps(2000);
+        assertEq(open.bufferBps(), 0, "the rejected raise must not move the buffer");
+
+        // Once the reserve is released the same raise is accepted
+        vmPrank(note);
+        open.settlePayout(1, recipient, 1000e18, 0);
+        open.setBufferBps(2000);
+        assertEq(open.bufferBps(), 2000, "raise should land once reserves are clear");
+    }
+
+    function test_SetBufferBps_AcceptsRaisesWithHeadroomAndEveryLowering() public {
+        _fundedAndReserved(1000e18, 12.5e18, 400e18); // deposits 1012.5, reserved 400, buffer 20%
+
+        // 20% -> 50% still leaves 506.25 usable against 400 reserved, so it is allowed
+        vault.setBufferBps(5000);
+        assertEq(vault.bufferBps(), 5000, "a raise with headroom should land");
+        assertEq(vault.availableCapacity(), 106.25e18, "capacity shrinks with the usable line");
+
+        // Lowering only ever raises the usable line, so it can never strand reserves
+        vault.setBufferBps(0);
+        assertEq(vault.bufferBps(), 0, "a lowering should land");
+        assertEq(vault.availableCapacity(), 612.5e18, "capacity grows with the usable line");
     }
 
     function test_SetBufferBps_RevertsWhenNotOwner() public {
