@@ -13,7 +13,8 @@ import {IERC20} from "./interfaces/IERC20.sol";
 ///         creation. Notes are deliberately not transferable: protection is priced for
 ///         the buyer, so it stays with them. Settling reads the Chainlink settlement
 ///         price and pays max(0, floor - current) from the vault; the buyer keeps all
-///         upside.
+///         upside. The payout basis is the position the owner still holds at settlement,
+///         so sold stock stops being covered; the reserve always releases.
 contract ProtectionNote {
     enum Status {
         ACTIVE,
@@ -153,29 +154,55 @@ contract ProtectionNote {
     /// @notice Settle an expired note. Permissionless. The payout goes to the buyer
     ///         recorded at creation — notes are not transferable, so protection always
     ///         settles to the account that bought it.
+    ///
+    ///         The payout is computed against `eligibleAmount`, the portion of the
+    ///         protected position the buyer still holds at settlement. Protection covers
+    ///         a real position, so selling part of the stock before expiry shrinks what
+    ///         the downside pays proportionally, and selling all of it pays nothing. The
+    ///         note still settles and the full reserved liability is always released — a
+    ///         buyer who abandoned their position must never strand the vault's reserve,
+    ///         and releasing it can only ever give capacity back.
     function settle(uint256 noteId) external {
         Note storage note = notes[noteId];
         if (noteId == 0 || noteId > nextId) revert NoteNotFound();
         if (note.status != Status.ACTIVE) revert AlreadySettled();
         if (block.timestamp < note.expiry) revert NotExpired();
 
+        // Sealed before any external read. Eligibility below calls into the stock token,
+        // and a balanceOf hook that re-entered settle() for this same id would otherwise
+        // still see ACTIVE and draw the same liability twice. Every write here is rolled
+        // back if anything later in the call reverts, so a failed settlement cannot
+        // strand a note in SETTLED.
+        note.status = Status.SETTLED;
+        address recipient = note.owner;
+
         AssetRegistry.Asset memory entry = registry.getAsset(note.asset);
         (uint256 settlementPrice8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
 
-        uint256 payoutUSD18 = ProtectionMath.payout(note.amount, note.entryPrice, note.level, settlementPrice8);
+        uint256 payoutUSD18 =
+            ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
         uint256 payoutToken = ProtectionMath.toTokenUnits(payoutUSD18, vault.token().decimals());
 
-        address recipient = note.owner;
-        note.status = Status.SETTLED;
         vault.settlePayout(noteId, recipient, note.liabilityToken, payoutToken);
 
         emit NoteSettled(noteId, settlementPrice8, payoutToken, recipient);
     }
 
-    /// @notice Spec payout formula for a note at a hypothetical settlement price (USD-18).
+    /// @notice The share of a note's protected position that still backs it: the smaller
+    ///         of the protected amount and the balance its owner holds at settlement.
+    ///         Read, never written — the note's recorded amount stays fixed and immutable,
+    ///         only the payout it can produce shrinks.
+    function _eligibleAmount(Note storage note) internal view returns (uint256) {
+        uint256 held = IERC20(note.asset).balanceOf(note.owner);
+        return held < note.amount ? held : note.amount;
+    }
+
+    /// @notice Payout this note would produce at a hypothetical settlement price (USD-18),
+    ///         capped by the position the owner still holds — the same basis settle() uses,
+    ///         so the view never overstates what settlement can actually pay.
     function calculatePayout(uint256 noteId, uint256 settlementPrice8) external view returns (uint256) {
         Note storage note = notes[noteId];
-        return ProtectionMath.payout(note.amount, note.entryPrice, note.level, settlementPrice8);
+        return ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
     }
 
     /// @notice Live quote for the create flow: reads the current oracle price and

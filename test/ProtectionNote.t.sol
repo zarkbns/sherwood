@@ -309,6 +309,107 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(vault.reserved(), 0, "anyone can settle; owner still paid");
     }
 
+    // ------------------------------------------------------------------
+    // Eligibility: the payout tracks the position the owner still holds
+    // ------------------------------------------------------------------
+
+    /// @dev Sells the buyer's stock down to `held` by transferring the difference to
+    ///      `trader`. A self-transfer back to `buyer` would leave the balance untouched,
+    ///      so the destination has to be a different account.
+    function _sellDownTo(uint256 held) internal {
+        uint256 balance = stock.balanceOf(buyer);
+        assertTrue(balance >= held, "fixture cannot sell up");
+        vmPrank(buyer);
+        stock.transfer(trader, balance - held);
+        assertEq(stock.balanceOf(buyer), held, "fixture: sold down");
+    }
+
+    function test_Settle_FullOwnership_PaysTheWholeFormula() public {
+        uint256 id = _buySpecAndExpire();
+        feed.setPrice(60e8);
+
+        assertGe(stock.balanceOf(buyer), AMOUNT_5, "protected position still held");
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer), buyerBefore + 100e18, "intact position pays in full");
+    }
+
+    function test_Settle_PartialOwnership_PaysOnlyTheHeldShare() public {
+        uint256 id = _buySpecAndExpire();
+        _sellDownTo(2e18); // two of the protected five sold before expiry
+        feed.setPrice(60e8);
+
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+
+        // floor 2 x 100 x 0.8 = 160, current 2 x 60 = 120 -> payout 40, not 100
+        assertEq(settlement.balanceOf(buyer), buyerBefore + 40e18, "payout tracks the held share");
+        assertEq(vault.reserved(), 0, "the whole 400 liability releases, not just the paid slice");
+        assertEq(vault.totalDeposits(), 972.5e18, "deposits drop by the reduced payout");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
+
+        (, , , , , , , , uint256 liabilityToken, ProtectionNote.Status status) = note.notes(id);
+        assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "a partial position still settles");
+        assertEq(liabilityToken, 400e18, "recorded liability is never rewritten");
+    }
+
+    function test_Settle_ZeroOwnership_PaysNothingAndStillReleasesTheReserve() public {
+        uint256 id = _buySpecAndExpire();
+        _sellDownTo(0);
+        feed.setPrice(60e8);
+
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        vmExpectEmit(true, false, true, true);
+        emit NoteSettled(id, 60e8, 0, buyer);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer), buyerBefore, "no position, no payout");
+        assertEq(vault.reserved(), 0, "the reserve must never strand on a deserted note");
+        assertEq(vault.totalDeposits(), 1012.5e18, "nothing left the vault");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
+        assertEq(vault.availableCapacity(), 810e18, "capacity is handed back in full");
+
+        (, , uint256 amount, , , , , , , ProtectionNote.Status status) = note.notes(id);
+        assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "a deserted note still settles");
+        assertEq(amount, AMOUNT_5, "note terms stay immutable");
+    }
+
+    function test_Settle_EligibilityUsesOwnerBalanceNotSettlers() public {
+        uint256 id = _buySpecAndExpire();
+        _sellDownTo(2e18);
+        feed.setPrice(60e8);
+
+        // trader holds the rest of the supply, so paying on the caller's balance would
+        // overpay; trader holds no settlement token at all, so stealing would show too.
+        assertGt(stock.balanceOf(trader), AMOUNT_5, "settler holds more than the note");
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        uint256 traderBefore = settlement.balanceOf(trader);
+
+        vmPrank(trader);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer), buyerBefore + 40e18, "capped by the owner's position");
+        assertEq(settlement.balanceOf(trader), traderBefore, "the settler is paid nothing");
+    }
+
+    function testFuzz_Settle_PayoutScalesWithHeldPosition(uint256 heldSeed) public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+        uint256 held = heldSeed % (AMOUNT_5 + 1); // 0 .. 5e18
+        _sellDownTo(held);
+
+        vmWarp(T0 + DUR_7D + 1);
+        feed.setPrice(60e8);
+
+        uint256 expected = ProtectionMath.payout(held, ENTRY_100, LEVEL_80, 60e8);
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer) - buyerBefore, expected, "payout on the held position");
+        assertEq(vault.reserved(), 0, "liability always released");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "vault stays fully backed");
+    }
+
     function test_Settle_RevertsBeforeExpiry() public {
         uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
         vmWarp(T0 + DUR_7D - 1);
@@ -368,6 +469,23 @@ contract ProtectionNoteTest is NoteFixture {
             ProtectionMath.payout(AMOUNT_5, ENTRY_100, LEVEL_80, 60e8),
             "must equal library formula"
         );
+    }
+
+    function test_CalculatePayout_CapsAtTheHeldPosition() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+
+        assertEq(note.calculatePayout(id, 60e8), 100e18, "intact position");
+        _sellDownTo(2e18);
+        assertEq(note.calculatePayout(id, 60e8), 40e18, "a shrinking position quotes less");
+        _sellDownTo(0);
+        assertEq(note.calculatePayout(id, 60e8), 0, "a deserted position quotes zero");
+
+        // The view must never promise more than settle() can pay.
+        vmWarp(T0 + DUR_7D + 1);
+        feed.setPrice(60e8);
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+        assertEq(settlement.balanceOf(buyer), buyerBefore, "settle pays exactly what the capped view said");
     }
 
     function test_IsSettlable_Lifecycle() public {
