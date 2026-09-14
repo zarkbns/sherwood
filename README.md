@@ -103,16 +103,20 @@ Example:
 
 This guarantee is checked at creation time, before your premium is collected. If anything in the creation flow reverts, nothing is collected.
 
+The buffer is part of the guarantee, not a target the owner can quietly spend: `withdrawSurplus` is capped at free capacity, so an owner withdrawal can never leave reserved collateral above the usable line, and `setBufferBps` refuses a raise that would strand collateral already reserved under a smaller buffer. Emptying the vault is an explicit act — settle the notes, clear the buffer, withdraw.
+
 ### Settlement
 
 Protection Notes settle using verified price data from Chainlink:
 
-1. At expiry, Chainlink oracle returns settlement price (freshness-checked)
+1. At expiry, Chainlink oracle returns settlement price (freshness- and sequencer-uptime-checked)
 2. Contract calculates: `payout = max(0, protectedValue - currentValue)`
-3. Vault executes USDG transfer (or zero if price stayed above floor)
-4. Note status → SETTLED
+3. Note status → SETTLED
+4. Vault executes USDG transfer (or zero if price stayed above floor)
 
 Prices are never user-supplied — they always come from Chainlink. A stale price is not silently used: the oracle checks each feed's round freshness and **reverts** if it's too old, so settlement simply waits for a fresh round rather than settling on frozen data. No contract can promise a price source is never stale; Sherwood guarantees it never *acts* on a stale one.
+
+Settlement is permissionless and has no deadline: a note settles against the first price the oracle accepts at or after expiry. That is bounded by construction — the payout can never exceed the liability already reserved for that note, so a buyer waiting out a worse price is spending collateral the vault set aside for them, not exposing the vault.
 
 ---
 
@@ -145,9 +149,9 @@ Prices are never user-supplied — they always come from Chainlink. A stale pric
 
 **SherwoodVault.sol** — Holds USDG collateral, reserves capacity, executes payouts
 - `deposit()` — Deposit USDG collateral
-- `reserveFor()` — Reserve capacity and collect premium for a new note (called only by ProtectionNote; capacity checked before any token movement)
-- `settlePayout()` — Pay USDG to the buyer and release the reserved liability (payout ≤ liability, re-checked on-chain)
-- `withdrawSurplus()` — Owner withdrawal of unencumbered funds only
+- `reserveFor()` — Reserve capacity and collect premium for a new note (called only by ProtectionNote; capacity checked before any token movement, and the reserve is recorded *before* the premium is pulled, so a hooked token can't re-enter past the check)
+- `settlePayout()` — Pay USDG to the buyer and release the reserved liability (payout ≤ liability, re-checked on-chain; the release is booked before the transfer)
+- `withdrawSurplus()` — Owner withdrawal, capped at `availableCapacity()`: never reserved collateral, never the reserve buffer. Wind-down is settle → `setBufferBps(0)` → withdraw
 - State: `totalDeposits`, `reserved`, `availableCapacity()`, `bufferBps`
 
 **ProtectionNote.sol** — Creates and settles Protection Notes as structs keyed by `noteId` (non-transferable; no ERC-721 surface)
@@ -159,9 +163,10 @@ Prices are never user-supplied — they always come from Chainlink. A stale pric
 
 **ProtectionOracle.sol** — Retrieves and validates prices
 - `getPrice()` — Chainlink `latestRoundData()` with round-completeness and freshness checks
+- **L2 sequencer-uptime gate** — Robinhood Chain is an Arbitrum-based L2, and during a sequencer outage a feed's `updatedAt` can look fresh while the round still carries a pre-outage price. When an uptime feed is configured, every price read first checks Chainlink's standard aggregator (0 = up, 1 = down) and a post-restart grace window (default 3600 s, owner-capped at 1 day), rejecting `SequencerDown` / `SequencerGracePeriodNotOver`. It fails closed: a malformed uptime round is treated as down. Unset (`address(0)`) means the chain publishes no feed and the gate is off — the state of testnet 46630 today.
 - Rejects stale, invalid, or unsupported prices; no caching, no fallbacks
 
-**AssetRegistry.sol** — Registers supported stock tokens and their Chainlink feeds. Owner-gated: `registerAsset`, `setAssetActive`, `setAssetFeed` are admin-only; read views are permissionless.
+**AssetRegistry.sol** — Registers supported stock tokens and their Chainlink feeds. Feeds must report 8 decimals — the scale every price formula in `ProtectionMath` is written at — and a feed that doesn't is rejected at registration *and* at rotation (`UnsupportedFeedDecimals`), because a 6- or 18-decimal feed would silently mis-price every note against it. Owner-gated: `registerAsset`, `setAssetActive`, `setAssetFeed` are admin-only; read views are permissionless.
 
 ---
 
@@ -198,7 +203,7 @@ These were verified against official docs (September 2026):
 - **Chainlink feed availability on testnet** — Chainlink's tokenized-equity feed list currently covers Robinhood Chain mainnet; if testnet lacks feeds, register demo feeds and disclose it.
 - **Stock Token API (`/rhj/assets`, `/rhj/prices/{SYM}`)** — investigated 2026-09-12 as a settlement source, **not integrated**: official and public (HTTP 200, no auth; 194 assets), but every deployment is mainnet chain 4663 (nothing for testnet), responses are unsigned, and `bid`/`ask` are raw underlying prices — explicitly *not* multiplier-adjusted, unlike the on-chain Chainlink feeds. Feeding it on-chain would require a trusted updater, breaking the invariant that settlement prices are publicly verifiable from chain data. It is a good display-only source (market context, halt status) and a future mainnet registry discovery path.
 - **Feed addresses** — per Chainlink's guidance, never hardcode: read them from the Chainlink Robinhood feeds page at deploy and pass via `FEED_<SYMBOL>` env.
-- **Sequencer uptime** — Robinhood Chain docs recommend an L2 sequencer check before trusting prices; the oracle's freshness guard (default 72h staleness, per-feed capped at 7 days) already rejects outage-frozen prices. A dedicated sequencer-uptime feed integration is a known V2 item.
+- **Sequencer uptime** — the check Robinhood docs recommend before trusting prices is **implemented** (2026-09-14): `ProtectionOracle` gates every price read on Chainlink's L2 sequencer uptime feed and a post-restart grace window, failing closed on malformed data (see *Smart Contracts*). **No uptime feed address is verified for either Robinhood Chain network yet**, so the gate ships disabled; it goes live by passing `SEQUENCER_UPTIME_FEED` at deploy, the same way `FEED_<SYMBOL>` supplies equity feeds. Until then the staleness guard (default 72h, per-feed capped at 7 days) is the only price-freshness protection, and it is what rejects outage-frozen prices.
 
 ---
 
@@ -213,7 +218,8 @@ forge test
 export RPC_URL=https://rpc.testnet.chain.robinhood.com
 export PRIVATE_KEY=your-testnet-key
 export SETTLEMENT_TOKEN=0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006   # optional: MockUSDG is already the 46630 default; point at 0x7E95... when real testnet USDG becomes claimable
-export TOKEN_TSLA=0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E FEED_TSLA=0x...   # repeat per asset (AMZN, NFLX, PLTR, AMD)
+export TOKEN_TSLA=0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E FEED_TSLA=0x...   # repeat per asset (AMZN, NFLX, PLTR, AMD); feeds must report 8 decimals
+export SEQUENCER_UPTIME_FEED=0x... SEQUENCER_GRACE_PERIOD=3600   # optional: L2 sequencer gate; unset = off, which is correct for a chain with no feed
 forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
 # Source verification (Blockscout):
 forge verify-contract --chain-id 46630 --verifier blockscout \
@@ -382,8 +388,9 @@ ACTIVE (waiting for expiry)
 
 **Phase 3 (Nice-to-Have) — Only If Remaining Time**
 - Session-based permissions for automation
-- Sequencer-uptime feed integration for the oracle
 - Additional chains, if a deploy target justifies itself
+
+Shipped beyond the phases above: the L2 sequencer-uptime gate in `ProtectionOracle` (2026-09-14), 8-decimal feed validation in `AssetRegistry`, and checks-effects-interactions ordering across the vault and note (pinned by `test/Reentrancy.t.sol`).
 
 ---
 
@@ -393,7 +400,7 @@ ACTIVE (waiting for expiry)
 
 **No Overbuild** — Sherwood's core demo is: Real Stock Token → User Creates Protection Note → Verified Price → On-Chain Terms → Real Settlement. That alone is a complete financial primitive.
 
-**Prices from Chainlink Only** — Never accept user-supplied, estimated, or cached prices. Always verify freshness. Always reject stale, invalid, or unsupported assets.
+**Prices from Chainlink Only** — Never accept user-supplied, estimated, or cached prices. Always verify freshness. Always reject stale, invalid, or unsupported assets. On an L2, freshness is not enough: while the sequencer is down a round can look current and carry a pre-outage price, so no price is used unless the chain's uptime feed reports the sequencer up and clear of its restart grace window (and the gate fails closed when the uptime data is malformed).
 
 **No TODOs** — Write complete implementations. If something is blocked, log it as a known limitation in the commit message, not as a TODO marker.
 

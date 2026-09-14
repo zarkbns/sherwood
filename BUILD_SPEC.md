@@ -14,7 +14,7 @@ Sherwood sells downside protection for tokenized stocks. A user holding a stock 
 
 ## 2. Core Formulas
 
-All USD math is internally **18 decimals** (USD-18). Prices arrive from Chainlink with 8 decimals; conversion happens at the boundary.
+All USD math is internally **18 decimals** (USD-18). Prices arrive from Chainlink with 8 decimals; conversion happens at the boundary. **8 decimals is enforced, not assumed** — `AssetRegistry` rejects any feed whose `decimals()` is not 8, at registration and at rotation, so no note can ever be priced at a different scale.
 
 ```
 valueUSD18        = amount18 × price8 / 1e8                      // current USD value of position
@@ -52,8 +52,9 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 
 - **Levels:** 70, 80, 90 (% × 1e16 as level18)
 - **Durations:** 1, 7, 14, 30 days
-- **Vault reserve buffer:** 2000 bps (20%) — configurable by owner, cap 5000 bps
+- **Vault reserve buffer:** 2000 bps (20%) — configurable by owner, cap 5000 bps, not withdrawable while set (§4 `withdrawSurplus`), and a raise that would strand existing reserves is refused (§4 `setBufferBps`)
 - **Oracle max staleness:** 72 h default (covers weekend equity-market closure) — configurable per registry entry, owner-capped at 7 days
+- **Oracle sequencer grace period:** 3600 s default — owner-configurable, capped at 1 day (§4 `ProtectionOracle`)
 
 ---
 
@@ -62,16 +63,20 @@ Manual verification (80% level, 5 TSLA @ $100 entry, 7-day):
 ```
 User ──> ProtectionNote (struct registry, noteId-keyed)
           │ create(): validate asset → position guard (caller holds the stock) →
-          │           read entry price → vault.reserve(liability) → collect premium → record
+          │           read entry price → consume noteId → vault.reserve(liability) →
+          │           collect premium → record
           └ settle(): after expiry → oracle settlement price →
                       vault.settlePayout(note) → transfer payout or release
 SherwoodVault: deposits, reserved collateral, capacity checks, payouts
-AssetRegistry: token → {feed, staleness, active}, owner-gated
-ProtectionOracle: AggregatorV3 wrapper, freshness + sanity validation
+AssetRegistry: token → {feed, staleness, active}, owner-gated, 8-decimal feeds only
+ProtectionOracle: AggregatorV3 wrapper, L2 sequencer-uptime + freshness + sanity gates
 ProtectionMath: pure payout/premium/conversion functions
 ```
 
-**Flow order is an invariant:** the position guard and capacity check happen **before** any premium collection or collateral reservation, so a failed create (under-collateralised or a caller who doesn't hold the stock) moves no tokens. Any revert after reservation rolls back the whole transaction (atomic).
+**Flow order is an invariant**, in two directions:
+
+- *Before money moves:* the position guard and the capacity check happen **before** any premium collection or collateral reservation, so a failed create (under-collateralised or a caller who doesn't hold the stock) moves no tokens. Any revert after reservation rolls back the whole transaction (atomic).
+- *Before an external call:* state is written **before** the token interaction that could re-enter. The vault records `reserved`/`totalDeposits` before pulling a premium or sending a payout, and `ProtectionNote` consumes `noteId` before calling the vault. A settlement token with transfer hooks therefore never observes — nor acts on — a check its own transfer is about to invalidate. Pinned by `test/Reentrancy.t.sol`.
 
 ---
 
@@ -80,35 +85,45 @@ ProtectionMath: pure payout/premium/conversion functions
 ### SherwoodVault.sol
 Holds settlement token. Tracks `totalDeposits` (deposits + received premiums) and `reserved` (Σ active note liabilities, token units).
 
+**Stated assumption:** the settlement token moves exactly `amount` on `transfer`/`transferFrom`. USDG satisfies this. A fee-on-transfer or rebasing token would let custody drift below `totalDeposits` and break invariant 4 — `script/Deploy.s.sol` screens for code presence and ≤ 18 decimals at deploy, but no deploy-time check can detect a transfer fee, so the settlement token is a deliberate trust boundary, not an arbitrary one.
+
 - `deposit(amount)` — pull token, `totalDeposits += amount`
-- `reserveFor(payer, premium, liability)` — **capacity check first**: `reserved + liability ≤ totalDeposits − buffer`; then pull premium from payer (`totalDeposits += premium`), `reserved += liability`. Called only by ProtectionNote.
-- `settlePayout(recipient, liability, payout)` — transfer `payout` to recipient, `reserved −= liability`. Called only by ProtectionNote. `payout ≤ liability` must hold (math guarantees: payout = floor − current ≤ floor = liability).
+- `reserveFor(noteId, payer, premium, liability)` — **capacity check first**: `premium + liability ≤ availableCapacity()`. That is the plain `reserved + liability ≤ totalDeposits − buffer` precondition tightened by the premium itself, and it implies invariant 1 with room to spare. Then `totalDeposits += premium` and `reserved += liability`, and **only then** the premium is pulled from the payer (checks-effects-interactions). Called only by ProtectionNote.
+- `settlePayout(noteId, recipient, liability, payout)` — `payout ≤ liability` and `payout ≤ balance` both re-checked, then `reserved −= liability` and `totalDeposits −= payout` **before** the transfer to `recipient`. Called only by ProtectionNote. (`payout ≤ liability` is guaranteed by the math: payout = floor − current ≤ floor = liability.)
 - `availableCapacity()` view — `min(totalDeposits − buffer − reserved)` clamped at 0
-- Owner: `setBufferBps`, `setNoteContract` (authorization of the note contract), `withdrawSurplus` (unencumbered funds only)
+- Owner: `setBufferBps` (a raise is refused with `BufferBreachesReserves` unless `reserved ≤ totalDeposits × (1 − newBuffer)` still holds — otherwise an admin call would strand collateral that was legitimately reserved under a smaller buffer; lowerings always pass), `setNoteContract` (authorization of the note contract), `withdrawSurplus(to, amount)` — capped at `availableCapacity()`, so it can take neither reserved collateral nor the reserve buffer. The cap is exactly what keeps invariant 1 true *after* a withdrawal (`amount ≤ D(1−b) − R ⟹ (D − amount)(1−b) ≥ R`). Winding a vault fully down is therefore a deliberate two-step: settle the notes, `setBufferBps(0)`, withdraw.
 
 ### ProtectionNote.sol (plain struct registry, not a token)
 Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premiumUSD18, protectedUSD18, liabilityToken, status`. `noteId` starts at 1 and increments; `notes(noteId)` is a public mapping. Terms immutable after creation.
 
 **Notes are deliberately non-transferable.** Protection is priced for the buyer, so `settle()` always pays the recorded `owner`. This removes the entire ERC-721 surface (approvals, receiver hooks, transfer reentrancy) with no product loss — there is no secondary-market requirement in V1. If transferability ever becomes a real requirement, it is an explicit V2 decision, not an accident of the token standard.
 
-- `create(asset, amount, level, duration)` — full flow above; validates: asset registered + active, amount > 0, supported level/duration, then **position guard: caller must hold `amount` of the asset token** (`balanceOf(msg.sender) ≥ amount`, else `InsufficientPosition`). The stock is verified, never transferred or custodied — Sherwood protects a position, it doesn't take it. This keeps the product a real downside hedge for tokenized-equity holders, not a naked speculative bet. Settlement remains cash-settled on the price difference.
-- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, pays the recorded owner via the vault, sets SETTLED.
+- `create(asset, amount, level, duration)` — full flow above; validates: asset registered + active, amount > 0, supported level/duration, then **position guard: caller must hold `amount` of the asset token** (`balanceOf(msg.sender) ≥ amount`, else `InsufficientPosition`). The stock is verified, never transferred or custodied — Sherwood protects a position, it doesn't take it. This keeps the product a real downside hedge for tokenized-equity holders, not a naked speculative bet. Settlement remains cash-settled on the price difference. The id is consumed (`nextId += 1`) *before* `vault.reserveFor`, so a re-entrant create claims the next id instead of overwriting the note in flight and stranding its reserve.
+- `settle(noteId)` — permissionless, only when `block.timestamp ≥ expiry` and status ACTIVE. Reads settlement price, computes payout, marks SETTLED, then pays the recorded owner via the vault.
 - `quote(asset, amount, level, duration)` — live on-chain quote (premium, floor, expiry) so the UI never recomputes rates or prices client-side.
 - `calculatePayout(note, settlementPrice8)` — pure, spec formula.
 - `isSettlable(noteId)` — derived view: exists + ACTIVE + past expiry.
 - Status: `ACTIVE → SETTLED` (payout can be zero; a SETTLABLE state is derivable from expiry, not stored).
 
+**Settle timing is deliberately open-ended.** Anyone may settle at any time after expiry, so the price that settles a note is the first *accepted* price at or after expiry, not the price at the expiry instant. This is safe by construction rather than by luck: the payout is bounded by `liabilityToken` (`payout ≤ floor = liability`), that amount is already reserved, and reserved collateral is always fully backed — so a buyer waiting out a worse price can only spend the liability the vault already set aside, never make it insolvent. Pinning settlement to the expiry instant would require a price at a moment nobody is obliged to supply; rejecting stale and outage-frozen prices is the stronger guarantee. Flagged as a product decision, not a bug.
+
 ### AssetRegistry.sol
-- `registerAsset(token, symbol, feed, staleness)` — owner
+- `registerAsset(token, symbol, feed, staleness)` — owner. Rejects a feed whose `decimals()` is not 8 with `UnsupportedFeedDecimals(feedDecimals)`: every `ProtectionMath` formula is written at 8 decimals, so a 6-decimal feed would under-price a position 100× and an 18-decimal feed over-price it 1e10× — silently, and against the buyer.
 - `setAssetActive(token, bool)` — owner (disable = reject new notes; existing notes settle normally)
-- `getAsset(token)` view → struct; `isSupported(token)` view
+- `setAssetFeed(token, feed)` — owner; same 8-decimal gate, because a live note settles against whatever feed is bound at settle time
+- `getAsset(token)` view → struct; `isSupported(token)` view; `allAssets()` view
 
 ### ProtectionOracle.sol
-- `getPrice(feed)` → (price8, updatedAt) via `latestRoundData()`; reverts on: `answeredInRound < roundId`, `answer ≤ 0`, `updatedAt == 0`, `block.timestamp − updatedAt > staleness`.
+- `getPrice(feed, staleness)` → (price8, updatedAt) via `latestRoundData()`; reverts on, in order: sequencer down or inside its grace window (below), `answeredInRound < roundId` (`StaleRound`), `answer ≤ 0` / `updatedAt == 0` / `updatedAt > block.timestamp` (`InvalidPrice` — a stamp ahead of the block clock is rejected here rather than left to underflow), `block.timestamp − updatedAt > staleness` (`StalePrice`).
+- **L2 sequencer-uptime gate.** Robinhood Chain is an Arbitrum-based L2. During a sequencer outage a feed's `updatedAt` can still look fresh while the round carries a pre-outage price, and the staleness guard alone cannot tell those apart. When `sequencerUptimeFeed` is set, every `getPrice` first consults Chainlink's standard uptime aggregator (answer `0` = up, `1` = down; `startedAt` = when the sequencer came back):
+  - `answer != 0` → `SequencerDown`. **Fails closed:** an unexpected or malformed answer is treated as down, because refusing to price is always the safe direction.
+  - `startedAt == 0` or in the future → `InvalidSequencerFeed`.
+  - restarted less than `sequencerGracePeriod` ago → `SequencerGracePeriodNotOver`. The post-outage backlog lands in a burst, so the first rounds after a restart are precisely when prices are least trustworthy.
+- `sequencerUptimeFeed == address(0)` disables the gate — the correct state for a chain that publishes no feed (Robinhood Chain testnet 46630 today). Owner-settable both ways: `setSequencerUptimeFeed`, `setSequencerGracePeriod` (capped at 1 day by `GracePeriodTooLong`). The address is never hardcoded; `script/Deploy.s.sol` reads `SEQUENCER_UPTIME_FEED`.
 - No cached prices, no fallbacks, no user input.
 
 ### ProtectionMath.sol (library, pure)
-`usdValue`, `protectedValue`, `payout`, `premium`, `toTokenUnits`, `rateBps`. Every formula above lives here — nothing inline elsewhere.
+`usdValue`, `protectedValue`, `payout`, `premium`, `toTokenUnits`, `rateBps`. Every formula above lives here — nothing inline elsewhere. Also exports `PRICE_DECIMALS = 8`, the single definition the registry's feed check is built on.
 
 ### Minimal vendored interfaces (zero external deps)
 `IERC20` and `IAggregatorV3`. Rationale: no submodules → `forge build` never depends on network (flaky connectivity).
@@ -117,9 +132,9 @@ Note data struct: `owner, asset, amount18, entryPrice8, level18, expiry, premium
 
 ## 5. Events & Errors
 
-Events: `NoteCreated(noteId, owner, asset, amount, entryPrice, level, expiry, premium, protectedValue, liability)`, `NoteSettled(noteId, settlementPrice, payout, recipient)`, `Deposited depositor/amount`, `CapacityReserved/Released noteId/liability`, `PayoutExecuted(noteId, to, amount)`, `AssetRegistered(token, feed)`, `AssetStatusChanged(token, active)`, `BufferChanged(bps)`.
+Events: `NoteCreated(noteId, owner, asset, amount, entryPrice, level, expiry, premium, protectedValue, liability)`, `NoteSettled(noteId, settlementPrice, payout, recipient)`, `Deposited depositor/amount`, `Withdrawn to/amount`, `CapacityReserved/Released noteId/liability`, `PayoutExecuted(noteId, to, amount)`, `AssetRegistered(token, feed)`, `AssetStatusChanged(token, active)`, `AssetFeedUpdated(token, feed)`, `BufferChanged(bps)`, `NoteContractSet(noteContract)`, `OwnershipTransferred(prev, next)`, `SequencerUptimeFeedSet(feed)`, `SequencerGracePeriodSet(seconds)`.
 
-Custom errors: `UnsupportedAsset`, `AssetInactive`, `StalePrice`, `InvalidPrice`, `InsufficientCapacity`, `InsufficientVaultBalance`, `InsufficientPosition`, `NotExpired`, `AlreadySettled`, `InvalidLevel`, `InvalidDuration`, `InvalidAmount`, `Unauthorized`, `TransferFailed`, `BufferTooHigh`.
+Custom errors: `UnsupportedAsset`, `AssetInactive`, `StalePrice`, `StaleRound`, `InvalidPrice`, `InsufficientCapacity`, `InsufficientVaultBalance`, `InsufficientPosition`, `NotExpired`, `AlreadySettled`, `InvalidLevel`, `InvalidDuration`, `InvalidAmount`, `InvalidDecimals`, `Unauthorized`, `InvalidOwner`, `TransferFailed`, `BufferTooHigh`, `BufferBreachesReserves`, `EncumberedFunds`, `PayoutExceedsLiability`, `NotNoteContract`, `NoteNotFound`, `AlreadyRegistered`, `NotRegistered`, `ZeroAddress`, `StalenessTooHigh`, `UnsupportedFeedDecimals`, `SequencerDown`, `SequencerGracePeriodNotOver`, `InvalidSequencerFeed`, `GracePeriodTooLong`.
 
 Every state transition emits. Settlement always emits `NoteSettled` with the exact price and payout (auditable trail).
 
@@ -127,14 +142,17 @@ Every state transition emits. Settlement always emits `NoteSettled` with the exa
 
 ## 6. Invariants (checked in tests + reasoning)
 
-1. `reserved ≤ totalDeposits − totalDeposits×buffer/10_000` at all times.
-2. Every ACTIVE note has `liabilityToken` fully counted in `reserved`.
+1. `reserved ≤ totalDeposits − totalDeposits×buffer/10_000` at all times — including across an owner `withdrawSurplus` (capped at `availableCapacity()`) and an owner `setBufferBps` (a raise that would breach it is refused). Neither admin call can move this line.
+2. Every ACTIVE note has `liabilityToken` fully counted in `reserved`, and every reserved wei belongs to exactly one note with a distinct id — no orphaned reserves.
 3. `payout ≤ liabilityToken` for every settlement.
-4. Vault balance ≥ `reserved` after any sequence of deposits/creates/settlements (premiums add real tokens).
+4. Vault balance ≥ `reserved` after any sequence of deposits/creates/settlements/withdrawals (premiums add real tokens).
 5. Capacity is checked before any premium movement.
 6. No user- or owner-supplied price ever reaches settlement math; only oracle-validated prices.
 7. Note terms never mutate after creation; settle is the only transition and only after expiry.
 8. Every note's creator held at least `amount` of the asset at creation (position guard). Enforced at `create`, not re-checked at `settle` — the buyer may sell after purchasing protection; the note still settles to them (an insurance claim, not a transfer).
+9. When the chain publishes an L2 sequencer uptime feed, no price is used for entry or settlement while the sequencer is down or inside its restart grace window — and the gate fails closed on malformed uptime data.
+10. Every registered feed reports 8 decimals — the scale every price formula assumes — checked at registration *and* at rotation.
+11. Reserve/deposit accounting and the `noteId` counter are written before any external token call, so a transfer-hooked settlement token cannot re-enter past a capacity check or claim a note id twice.
 
 ---
 
@@ -144,12 +162,14 @@ Every state transition emits. Settlement always emits `NoteSettled` with the exa
 
 | Network | chainId | Settlement token | Feeds |
 |---|---|---|---|
-| Robinhood Chain mainnet | 4663 | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (canonical, per docs) | Chainlink tokenized-equity feeds per stock token — read addresses from docs.chain.link at deploy, never hardcode |
-| Robinhood Chain testnet | 46630 | MockUSDG `0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006` — "Mock USDG", 6 dec, public `faucet()` of 1,000 per address per 24h (verified live 2026-09-13) | feed availability unconfirmed on testnet; if absent, register demo feeds and disclose |
+| Robinhood Chain mainnet | 4663 | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (canonical, per docs) | Chainlink tokenized-equity feeds per stock token — read addresses from docs.chain.link at deploy, never hardcode. Same rule for the L2 sequencer uptime feed (`SEQUENCER_UPTIME_FEED`) |
+| Robinhood Chain testnet | 46630 | MockUSDG `0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006` — "Mock USDG", 6 dec, public `faucet()` of 1,000 per address per 24h (verified live 2026-09-13) | feed availability unconfirmed on testnet; if absent, register demo feeds and disclose. No uptime feed is published on 46630, so the sequencer gate ships disabled there |
 
 **Settlement token resolution** (`DeployConfig`): `SETTLEMENT_TOKEN` wins when set, otherwise the chain default above; an unset pair reverts `NoSettlementToken`. `settlementToken(chainId, override)` reverts `MockTokenOnMainnet` if the testnet mock is ever paired with 4663 — the mock's admin can mint without limit, so reserving real collateral against it would misstate what backs a note. `script/Deploy.s.sol` additionally refuses a token with no code, or with more than 18 decimals, before deploying anything. The canonical testnet USDG at `0x7E955252E15c84f5768B83c41a71F9eba181802F` stays the intended production-equivalent token and is a one-line env switch once Robinhood's testnet drip actually reaches wallet addresses; Sherwood's flows have never received it. MockUSDG was chosen because premiums, vault reserves and payouts must be exercisable on testnet to be verifiable at all. `script/Faucet.s.sol` claims it (testnet-only).
 
-Oracle facts: feeds use standard `AggregatorV3.latestRoundData()`; USD feeds are 8 decimals; updates run 24/5 with **no heartbeats off-hours** — so `maxStaleness` per asset (default 72h, owner-capped at 7 days) is the primary guard, and outage-frozen prices are rejected naturally. Robinhood docs also recommend an L2 sequencer-uptime check before trusting prices; that integration is a known V2 item, covered today by the staleness guard.
+**Oracle env** (`script/Deploy.s.sol`): `SEQUENCER_UPTIME_FEED` (optional — unset means the gate is off, and the deploy log says so out loud) and `SEQUENCER_GRACE_PERIOD` (default 3600 s). Both are read back from chain after deploy and the script fails if they did not land.
+
+Oracle facts: feeds use standard `AggregatorV3.latestRoundData()`; USD feeds are 8 decimals (now enforced by the registry); updates run 24/5 with **no heartbeats off-hours** — so `maxStaleness` per asset (default 72h, owner-capped at 7 days) is the primary guard, and outage-frozen prices are rejected naturally. Robinhood docs also recommend an L2 sequencer-uptime check before trusting prices; `ProtectionOracle` implements it as specified in §4, and it goes live on any chain whose feed address is supplied at deploy time.
 
 **Stock token addresses** are registered per network in AssetRegistry at deploy via `TOKEN_<SYMBOL>` / `FEED_<SYMBOL>` env — the protocol is asset-agnostic; whatever tokenized-stock contracts exist on the chain get registered with their feed.
 
