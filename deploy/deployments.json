@@ -3,22 +3,23 @@
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
-  "deploymentVersion": 4,
-  "deployedAt": "2026-09-13",
+  "deploymentVersion": 5,
+  "deployedAt": "2026-09-14",
   "contracts": {
-    "registry": "0xE0909f8A7f53B46305e9Ec8BC2615041b9B31ed4",
-    "oracle": "0xb507dAD5584D9390Dd9F1C3304D69cf7a5711EAa",
-    "vault": "0x2725cC6cf40d287cD2Daf19AbD133ddd6f6f07D3",
-    "note": "0x70A976041099CDb07B3bAd408908d24833189Fd8"
+    "registry": "0x4DE45eCb64e53CB5985004eE73f75F8c4d86ddA1",
+    "oracle": "0x663da2d192C14735BD81ACf930AA0C3268bC6e3a",
+    "vault": "0x1dd47dE13598e2aa3C103927A1c2C0fb5aFa070D",
+    "note": "0x073AEBD5fE17D7b6633664486C5647514e062Ca1"
   },
   "deployTxHashes": {
-    "AssetRegistry": "0xe917a8deadd69421307556af9a17e2ab0b13bde7a7e861bec6a12621816eb1aa",
-    "ProtectionOracle": "0xb234a17c9edc1e24a2c529b769605d2be03c39261d0bfeae16919822182bd745",
-    "SherwoodVault": "0x5b71fcae5616246a329493455992f5a60bb8d0b8c4d035556d125a3e7149a3d6",
-    "ProtectionNote": "0x659d5ab09641f02b84fd01e576d1b5d44bb7effeea1710e6b3f33e0beb814186",
-    "setNoteContract": "0x8a7bac26a7bce3769d3635ea67b0a5f71c03e19a04582258194c43edaff765cd",
-    "registerAssetTSLA": "0x3be927d92be8ae8ab74fc45bc5e1f1e69da63673cb4151ba998089be4c89f085"
+    "AssetRegistry": "0x2f7e62594df2538c960dc17b2f40d2e56558158d7ac8a8f803eba22d96c52f74",
+    "ProtectionOracle": "0x310a77a7d1b44ad80b86e5949f6f1cd20fbc6bdbdfd68b4b135f915ce9f158e1",
+    "SherwoodVault": "0x936eb98a4849924672e7951e727e4f0462f2857747dcf0be4e8144e6c92cb6ef",
+    "ProtectionNote": "0x46dfc58d77e440a3088958647c7e31dd999faf627ddd559753593eb67c935144",
+    "setNoteContract": "0x9d803f7de34f353d5c90896fbaccf5afc00384e292081c7ec974be0bb4d10bd8",
+    "registerAssetTSLA": "0x00efc4b2dbbf99aaa1e4690e896598440a837feaa2d255a41a22a872725ccf68"
   },
+  "wiringReadBack": "All read from chain 2026-09-14 after deploy, independent of the deploy script's own asserts: vault.token() = MockUSDG 0x8c4aa106..., vault.noteContract() = the v5 note, vault.bufferBps() = 2000, vault.totalDeposits() = 0 and reserved() = 0 (fresh vault, unfunded), note.registry()/oracle()/vault() all point at their v5 siblings, note.nextId() = 0, oracle.sequencerUptimeFeed() = address(0) with sequencerGracePeriod() = 3600 (check OFF by design — 46630 publishes no feed), registry.getAsset(TSLA) = TSLA / feed 0x9b1bE514... / 72h staleness / active + registered, vault owner = deployer. Codesizes: registry 3223, oracle 1645, vault 3226, note 5522.",
   "settlementToken": {
     "symbol": "MockUSDG",
     "name": "Mock USDG",
@@ -127,14 +128,15 @@
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
   },
-  "verification": "All four v4 protocol contracts source-verified on the explorer (solc 0.8.35, optimizer 200 runs, constructor args included for the vault and the note; the registry and oracle matched by bytecode).",
+  "verification": "v5 is deployed and wiring-verified on-chain but NOT yet source-verified on the explorer (v4 was, before it was superseded). Constructor args are recoverable from the deploy txs: the oracle's (sequencerUptimeFeed=address(0), gracePeriod=3600), the vault's (MockUSDG, 2000 bps) and the note's (registry, oracle, vault).",
   "notes": [
+    "v5 deployed 2026-09-14. It carries everything v4 lacked: the Chainlink L2 sequencer-uptime gate (off here by design — 46630 publishes no feed), the 8-decimal feed scale check at registration and rotation, the tightened withdrawSurplus/setBufferBps rules that can never breach invariant 1, and the eligibleAmount settlement basis (payout computed on min(note.amount, stock the owner still holds), reserve always released in full; commit 569ef97, 164/164 tests green). The oracle gained constructor arguments, so this had to be a fresh deploy, not a config nudge.",
+    "v4 is abandoned but not deleted: its four contracts stay on-chain with their history, and the demoNotes entries below were executed against the v4 stack (their tx hashes reference v4 addresses 0x70A97604.../0x2725cC6c...). Both v4 demo legs were settled and receipt-verified on 2026-09-14 before the redeploy — payout leg tx 0x79c3366e..., zero-payout leg tx 0x42b9c263... — so the evidence trail lives entirely on one version, which was the point of waiting.",
+    "v5 next steps, in order: fund the vault (faucet claim + vault.deposit, the v5 vault holds nothing yet), then run the demo create/settle path against the v5 addresses. DemoSettle now demands DEMO_SETTLE_PRICE explicitly (commit 6340b13) instead of defaulting to $100 — the default would have paid note 2 $5 and destroyed its zero-payout boundary.",
     "v4 redeployed for one reason: SherwoodVault.token is immutable, so the v3 vault will forever point at official testnet USDG, a token no protocol wallet has ever received. v3/v2/v1 are abandoned with zero funds and superseded.",
-    "Wiring read back from chain after deploy: vault.token() = MockUSDG, vault.noteContract() = the new note, vault.bufferBps() = 2000, note.{registry,oracle,vault} all correct, registry.getAsset(TSLA) = registered + active, vault owner = deployer.",
-    "Live read-path proof on v4: quote(0.1 TSLA, 80%, 1d) returned premium 5.625e17 USD-18 ($0.5625) and floor 2e19 ($20.00) — identical to v3 and to the spec formula at the DemoFeed price of $250.",
-    "Position guard is unchanged in v4 (create() reverts InsufficientPosition unless the caller holds the protected stock); proven on-chain in the v3 simulation on 2026-09-12 and covered by tests since.",
+    "Position guard is unchanged in v4 and v5 (create() reverts InsufficientPosition unless the caller holds the protected stock); proven on-chain in the v3 simulation on 2026-09-12 and covered by tests since.",
     "Frontend is repointed at this stack: v4 addresses and MockUSDG are the built-in defaults in frontend/lib/addresses.ts (mirrored in the gitignored frontend/.env.local), and `npm run build` was verified with no env file present, so a Vercel deploy needs no configuration.",
-    "Demo write path executed 2026-09-13: script/DemoCreate.s.sol funded the vault with 50 MockUSDG and bought note 1 (0.1 TSLA, $250 entry, 80%, 1 day) entirely in MockUSDG, paid from the 1,000 claimed from its faucet. Settlement is the remaining step — run script/DemoSettle.s.sol with NOTE_ID=1 after expiry (Mon 2026-09-14 ~08:16 WAT).",
-    "Deploy note for this chain: forge script needs --private-key passed explicitly for --broadcast; relying on the PRIVATE_KEY env var alone left the broadcast using Foundry's default sender and nothing was signed (the first v4 attempt produced zero deployed code). Dry runs need --sender set to the deployer too, or the DemoFeed's onlyOwner check reverts NotOwner. Expect an EIP-3855/PUSH0 warning for chain 46630 — v1 through v4 all deployed and execute fine."
+    "Demo write path executed 2026-09-13 on v4: script/DemoCreate.s.sol funded the vault with 50 MockUSDG and bought note 1 (0.1 TSLA, $250 entry, 80%, 1 day) entirely in MockUSDG, paid from the 1,000 claimed from its faucet. Both notes settled 2026-09-14 — see each demoNote's settlement object.",
+    "Deploy note for this chain: forge script needs --private-key passed explicitly for --broadcast; relying on the PRIVATE_KEY env var alone left the broadcast using Foundry's default sender and nothing was signed (the first v4 attempt produced zero deployed code). Dry runs need --sender set to the deployer too, or the DemoFeed's onlyOwner check reverts NotOwner. Expect an EIP-3855/PUSH0 warning for chain 46630 — v1 through v5 all deployed and execute fine. On this device run long broadcasts under termux-wake-lock; an unattended v4-era broadcast slept mid-run and submitted nothing."
   ]
 }
