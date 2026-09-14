@@ -126,6 +126,57 @@ contract AssetRegistryTest is TestBase {
         registry.setAssetFeed(tsLA, IAggregatorV3(address(0)));
     }
 
+    // ------------------------------------------------------------------
+    // Feed precision: every ProtectionMath formula assumes 8 decimals
+    // ------------------------------------------------------------------
+
+    function test_RegisterAsset_RevertsOnSixDecimalFeed() public {
+        MockAggregator sixDec = new MockAggregator(6);
+        vmExpectRevertData(
+            abi.encodeWithSelector(AssetRegistry.UnsupportedFeedDecimals.selector, uint8(6))
+        );
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(sixDec)), 72 hours);
+    }
+
+    function test_RegisterAsset_RevertsOnEighteenDecimalFeed() public {
+        MockAggregator eighteenDec = new MockAggregator(18);
+        vmExpectRevertData(
+            abi.encodeWithSelector(AssetRegistry.UnsupportedFeedDecimals.selector, uint8(18))
+        );
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(eighteenDec)), 72 hours);
+    }
+
+    /// @dev Rotation matters as much as registration: a live note settles against the
+    ///      feed registered at settle time, so a non-8-decimal replacement would
+    ///      mis-price every open note.
+    function test_SetAssetFeed_RevertsOnNonEightDecimalFeed() public {
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
+
+        MockAggregator sixteenDec = new MockAggregator(16);
+        vmExpectRevertData(
+            abi.encodeWithSelector(AssetRegistry.UnsupportedFeedDecimals.selector, uint8(16))
+        );
+        registry.setAssetFeed(tsLA, IAggregatorV3(address(sixteenDec)));
+
+        // The good feed stays bound
+        assertEq(address(registry.getAsset(tsLA).feed), address(feed), "feed must be unchanged");
+    }
+
+    function test_RegisterAsset_FailedDecimalsCheckLeavesNoRegistration() public {
+        MockAggregator sixDec = new MockAggregator(6);
+        vmExpectRevertData(
+            abi.encodeWithSelector(AssetRegistry.UnsupportedFeedDecimals.selector, uint8(6))
+        );
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(sixDec)), 72 hours);
+
+        assertFalse(registry.getAsset(tsLA).registered, "must not register");
+        assertEq(registry.allAssets().length, 0, "must not join the asset list");
+
+        // And the slot is still free for a correct feed
+        registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 72 hours);
+        assertTrue(registry.isSupported(tsLA), "a good feed should still register");
+    }
+
     function test_UnregisteredAsset_IsNotSupported() public {
         assertFalse(registry.isSupported(amzn), "unregistered should be unsupported");
     }

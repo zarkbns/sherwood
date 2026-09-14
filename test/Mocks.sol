@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
+import {SherwoodVault} from "../src/SherwoodVault.sol";
 
 /// @title Mocks
 /// @notice Test doubles for the settlement token and the Chainlink feed. Kept
@@ -28,7 +29,10 @@ contract MockERC20 is IERC20 {
         emit Transfer(address(0), to, amount);
     }
 
-    function transfer(address to, uint256 amount) external returns (bool) {
+    /// @dev `virtual` (and `public`, not `external`) so test/Reentrancy.t.sol can build a
+    ///      hook-bearing settlement token on top of it and still reach the base logic,
+    ///      the way an ERC777-style stablecoin could re-enter mid-transfer.
+    function transfer(address to, uint256 amount) public virtual returns (bool) {
         if (balanceOf[msg.sender] < amount) return false;
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
@@ -36,7 +40,7 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool) {
         if (allowance[from][msg.sender] < amount) return false;
         if (balanceOf[from] < amount) return false;
         allowance[from][msg.sender] -= amount;
@@ -202,5 +206,112 @@ contract MockAggregator is IAggregatorV3 {
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
         return (_roundId, _answer, _updatedAt, _updatedAt, _answeredInRound);
+    }
+}
+
+/// @title MockSequencerFeed
+/// @notice Test double for a Chainlink L2 sequencer uptime feed. Answer 0 = sequencer
+///         up, 1 = down; `startedAt` carries when the sequencer last came back up, which
+///         is what the oracle's post-restart grace period is measured against.
+contract MockSequencerFeed is IAggregatorV3 {
+    uint80 private _roundId = 1;
+    int256 private _answer;
+    uint256 private _startedAt;
+
+    /// @dev Chainlink's uptime feeds report 0 decimals; the oracle never scales this feed.
+    uint8 public constant decimals = 0;
+
+    function setStatus(int256 answer, uint256 startedAt) external {
+        _answer = answer;
+        _startedAt = startedAt;
+        _roundId += 1;
+    }
+
+    function latestRoundData()
+        external
+        view
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
+    {
+        // Chainlink's uptime feed reports no useful update timestamp of its own; the
+        // oracle reads only `answer` and `startedAt`, so both carry the restart time.
+        return (_roundId, _answer, _startedAt, _startedAt, _roundId);
+    }
+}
+
+/// @title HookedToken
+/// @notice Settlement token with a one-shot external callback fired at the start of a
+///         transfer, standing in for a token that re-enters its caller mid-move (ERC777
+///         hooks, or a hostile stablecoin). The callback runs *before* the balance
+///         update, which is the ordering a real hook hands an attacker.
+contract HookedToken is MockERC20 {
+    address public hookTarget;
+    bytes public hookPayload;
+    bool public hookOnTransfers = true;
+    bool public hookOnTransferFroms = true;
+    bool public swallowHookRevert;
+    bool public fired;
+    bytes public hookResult;
+
+    error HookedCallFailed();
+
+    constructor(uint8 decimals_) MockERC20("Hook", "HOOK", decimals_) {}
+
+    /// @notice Arm the one-shot callback. With `swallow`, a reverting callback is
+    ///         recorded instead of bubbled, so the outer call can be observed through to
+    ///         completion.
+    function arm(address target, bytes calldata payload, bool swallow) external {
+        hookTarget = target;
+        hookPayload = payload;
+        swallowHookRevert = swallow;
+        fired = false;
+        delete hookResult;
+    }
+
+    /// @notice Choose which side of the token fires the callback.
+    function setHookSides(bool onTransfer, bool onTransferFrom) external {
+        hookOnTransfers = onTransfer;
+        hookOnTransferFroms = onTransferFrom;
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        if (hookOnTransfers) _fireHook();
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        if (hookOnTransferFroms) _fireHook();
+        return super.transferFrom(from, to, amount);
+    }
+
+    function _fireHook() private {
+        if (hookTarget == address(0) || fired) return;
+        fired = true;
+        (bool ok, bytes memory data) = hookTarget.call(hookPayload);
+        if (ok) {
+            hookResult = data;
+        } else if (!swallowHookRevert) {
+            revert HookedCallFailed();
+        }
+    }
+}
+
+/// @title VaultStateProbe
+/// @notice Snapshots the vault's accounting at the moment it is called, so a test can
+///         read the vault from inside an external token callback. The sentinels stay at
+///         max() until the probe has actually run.
+contract VaultStateProbe {
+    SherwoodVault public immutable vault;
+    uint256 public reservedAtCall = type(uint256).max;
+    uint256 public depositsAtCall = type(uint256).max;
+    uint256 public calls;
+
+    constructor(SherwoodVault vault_) {
+        vault = vault_;
+    }
+
+    function probe() external {
+        reservedAtCall = vault.reserved();
+        depositsAtCall = vault.totalDeposits();
+        calls += 1;
     }
 }

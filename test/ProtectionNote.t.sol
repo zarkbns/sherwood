@@ -7,6 +7,7 @@ import {ProtectionMath} from "../src/ProtectionMath.sol";
 import {ProtectionOracle} from "../src/ProtectionOracle.sol";
 import {AssetRegistry} from "../src/AssetRegistry.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
+import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
 import {MockERC20, MockAggregator} from "./Mocks.sol";
 
 /// @dev Shared fixture: registry + oracle + vault + note wired together, TSLA
@@ -46,7 +47,8 @@ abstract contract NoteFixture is TestBase {
         stock = new MockERC20("Tesla", "TSLA", 18);
         tsla = address(stock);
         registry = new AssetRegistry();
-        oracle = new ProtectionOracle();
+        // No sequencer uptime feed: the check is off, as on Robinhood Chain testnet.
+        oracle = new ProtectionOracle(IAggregatorV3(address(0)), 0);
         vault = new SherwoodVault(settlement, 2000);
         note = new ProtectionNote(registry, oracle, vault);
         vault.setNoteContract(address(note));

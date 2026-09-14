@@ -5,6 +5,7 @@ import {DeployConfig} from "./Config.s.sol";
 import {ScriptBase} from "./ScriptBase.sol";
 import {AssetRegistry} from "../src/AssetRegistry.sol";
 import {ProtectionOracle} from "../src/ProtectionOracle.sol";
+import {ProtectionMath} from "../src/ProtectionMath.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
 import {ProtectionNote} from "../src/ProtectionNote.sol";
 import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
@@ -22,12 +23,22 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 ///           SETTLEMENT_TOKEN=0x...
 ///         Optional:
 ///           SETTLEMENT_TOKEN=0x...   override the chain default (both networks)
+///           SEQUENCER_UPTIME_FEED=0x...   Chainlink L2 sequencer uptime feed. Read from
+///                                         docs.chain.link at deploy time and never
+///                                         hardcoded; unset leaves the check off, which
+///                                         is the correct state for a chain that
+///                                         publishes no feed (testnet 46630 today).
+///           SEQUENCER_GRACE_PERIOD=3600   seconds after restart before prices are trusted
 ///           TOKEN_TSLA=0x... FEED_TSLA=0x...   per-asset registration (also AMZN,
 ///                                                NFLX, PLTR, AMD)
 ///
 ///         Run: forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
 contract Deploy is ScriptBase {
     string[] internal SYMBOLS = ["TSLA", "AMZN", "NFLX", "PLTR", "AMD"];
+
+    /// @dev Chainlink's recommended window after an L2 sequencer restart: the update
+    ///      backlog lands in a burst, so early rounds can carry pre-outage prices.
+    uint256 internal constant DEFAULT_SEQUENCER_GRACE_PERIOD = 1 hours;
 
     function run() external {
         uint256 chainId = block.chainid;
@@ -54,7 +65,9 @@ contract Deploy is ScriptBase {
         vmStartBroadcast();
 
         AssetRegistry registry = new AssetRegistry();
-        ProtectionOracle oracle = new ProtectionOracle();
+        address uptimeFeed = vmEnvAddressOpt("SEQUENCER_UPTIME_FEED");
+        uint256 gracePeriod = vmEnvUint("SEQUENCER_GRACE_PERIOD", DEFAULT_SEQUENCER_GRACE_PERIOD);
+        ProtectionOracle oracle = new ProtectionOracle(IAggregatorV3(uptimeFeed), gracePeriod);
         SherwoodVault vault = new SherwoodVault(IERC20(settlement), cfg.bufferBps);
         ProtectionNote note = new ProtectionNote(registry, oracle, vault);
 
@@ -72,12 +85,22 @@ contract Deploy is ScriptBase {
         require(address(note.vault()) == address(vault), "vault not wired");
         require(address(vault.token()) == settlement, "settlement token mismatch");
         require(vault.bufferBps() == cfg.bufferBps, "buffer mismatch");
+        require(address(oracle.sequencerUptimeFeed()) == uptimeFeed, "sequencer uptime feed not wired");
+        require(oracle.sequencerGracePeriod() == gracePeriod, "sequencer grace period not wired");
 
         vmLog("deployed:");
         vmLog(string.concat("  AssetRegistry:    ", vmToString(address(registry))));
         vmLog(string.concat("  ProtectionOracle: ", vmToString(address(oracle))));
         vmLog(string.concat("  SherwoodVault:    ", vmToString(address(vault))));
         vmLog(string.concat("  ProtectionNote:   ", vmToString(address(note))));
+        if (uptimeFeed == address(0)) {
+            vmLog("sequencer uptime check: OFF (no SEQUENCER_UPTIME_FEED - set it if this chain publishes a feed)");
+        } else {
+            vmLog(string.concat(
+                "sequencer uptime check: ON at ", vmToString(uptimeFeed), " with a ",
+                vmToString(gracePeriod), "s grace period"
+            ));
+        }
         vmLog("next: fund the vault with the settlement token (script/Faucet.s.sol claims MockUSDG on testnet),");
         vmLog("      then verify feeds on the explorer");
     }
@@ -91,9 +114,14 @@ contract Deploy is ScriptBase {
                 vmLog(string.concat("skip ", symbol, " (set TOKEN_", symbol, " and FEED_", symbol, " to register)"));
                 continue;
             }
+            // A feed that reports something other than 8 decimals is rejected by the
+            // registry; failing with the precision in the message beats a silent mispricing.
+            require(feed.code.length > 0, "feed has no code at this address");
+            uint8 feedDecimals = IAggregatorV3(feed).decimals();
+            require(feedDecimals == ProtectionMath.PRICE_DECIMALS, "feed decimals must be 8");
             // Staleness 0 -> registry default (72h), per spec §2.
             registry.registerAsset(token, symbol, IAggregatorV3(feed), 0);
-            vmLog(string.concat("registered ", symbol, " at ", vmToString(token)));
+            vmLog(string.concat("registered ", symbol, " at ", vmToString(token), " (feed 8 decimals)"));
         }
     }
 }

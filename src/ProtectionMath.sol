@@ -6,7 +6,12 @@ pragma solidity ^0.8.28;
 ///         Prices are Chainlink answers (8 decimals). Settlement-token conversion
 ///         happens only at the vault boundary via `toTokenUnits`.
 library ProtectionMath {
-    uint256 internal constant PRICE_PRECISION = 1e8;
+    /// @notice Decimals every price entering this library must carry (Chainlink USD
+    ///         feeds). AssetRegistry enforces this at registration; the formulas below
+    ///         are only correct at this scale.
+    uint8 public constant PRICE_DECIMALS = 8;
+
+    uint256 internal constant PRICE_PRECISION = 1e8; // 10 ** PRICE_DECIMALS
     uint256 internal constant LEVEL_DENOMINATOR = 1e18;
     uint256 internal constant RATE_DENOMINATOR = 10_000;
     uint256 internal constant USD_PRECISION = 1e18;

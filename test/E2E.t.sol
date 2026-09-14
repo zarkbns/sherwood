@@ -6,7 +6,7 @@ import {NoteFixture} from "./ProtectionNote.t.sol";
 import {ProtectionNote} from "../src/ProtectionNote.sol";
 import {ProtectionOracle} from "../src/ProtectionOracle.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
-import {MockERC20, MockAggregator} from "./Mocks.sol";
+import {MockERC20, MockAggregator, MockSequencerFeed} from "./Mocks.sol";
 
 /// @title E2E
 /// @notice Whole-system rehearsal of the deployment checklist. Wires registry +
@@ -186,6 +186,51 @@ contract E2ETest is NoteFixture {
         note.settle(id);
         assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80 + 500e18, "settles once a fresh price arrives");
         assertEq(vault.reserved(), 0, "collateral released after fresh settle");
+    }
+
+    /// @dev Robinhood Chain is an L2. While its sequencer is down a feed's `updatedAt`
+    ///      can still look fresh on a round that carries a pre-outage price, so the
+    ///      staleness guard alone cannot tell the two apart. The uptime gate must stop
+    ///      both legs of the lifecycle and release once the restart grace window ends.
+    function test_E2E_SequencerOutage_BlocksCreateAndSettle_ResumesAfterGrace() public {
+        _fundVault(100_000e18);
+        _fundBuyer(1e24);
+        feed.setPrice(int256(ENTRY_250));
+
+        MockSequencerFeed uptime = new MockSequencerFeed();
+        uptime.setStatus(0, block.timestamp - 1 hours); // up, restart well behind us
+        oracle.setSequencerUptimeFeed(uptime);
+
+        vmPrank(buyer);
+        uint256 id = note.create(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
+        assertEq(vault.reserved(), FLOOR_80_5, "healthy sequencer: the note is created");
+
+        // Outage: no new notes, and an expired note must not settle on a frozen price
+        uptime.setStatus(1, block.timestamp);
+        vmExpectRevert(ProtectionOracle.SequencerDown.selector);
+        vmPrank(buyer);
+        note.create(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
+
+        vmWarp(T0 + DUR_7D);
+        vmExpectRevert(ProtectionOracle.SequencerDown.selector);
+        vmPrank(keeper);
+        note.settle(id);
+        assertTrue(note.isSettlable(id), "the note survives the outage unsettled");
+        assertEq(vault.reserved(), FLOOR_80_5, "collateral stays reserved through the outage");
+
+        // Back up but still inside the grace window: the backlog may carry pre-outage prices
+        uptime.setStatus(0, block.timestamp);
+        vmExpectRevert(ProtectionOracle.SequencerGracePeriodNotOver.selector);
+        vmPrank(keeper);
+        note.settle(id);
+
+        // Past the window the note settles normally against the live price
+        feed.setPrice(150e8);
+        vmWarp(block.timestamp + 2 hours);
+        vmPrank(keeper);
+        note.settle(id);
+        assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80 + 250e18, "settles once the outage clears");
+        assertEq(vault.reserved(), 0, "collateral released after the outage");
     }
 
     function test_E2E_InactiveAsset_BlocksNewNotes_ExistingNotesStillSettle() public {

@@ -7,6 +7,7 @@ import {ProtectionOracle} from "../src/ProtectionOracle.sol";
 import {ProtectionNote} from "../src/ProtectionNote.sol";
 import {SherwoodVault} from "../src/SherwoodVault.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
+import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
 import {MockAggregator, MockERC20, MockUSDG} from "./Mocks.sol";
 
 /// @title MockUSDG faucet economics
@@ -145,7 +146,9 @@ contract MockUSDGSettlementTest is TestBase {
 
         stock = new MockERC20("Tesla", "TSLA", 18);
         registry = new AssetRegistry();
-        oracle = new ProtectionOracle();
+        // Testnet 46630 publishes no L2 sequencer uptime feed, so the oracle runs with
+        // the check off and the per-asset staleness guard alone.
+        oracle = new ProtectionOracle(IAggregatorV3(address(0)), 0);
         vault = new SherwoodVault(IERC20(address(token)), 2000);
         note = new ProtectionNote(registry, oracle, vault);
         vault.setNoteContract(address(note));

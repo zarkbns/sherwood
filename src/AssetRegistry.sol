@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Ownable} from "./Ownable.sol";
+import {ProtectionMath} from "./ProtectionMath.sol";
 import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
 
 /// @title AssetRegistry
@@ -27,6 +28,7 @@ contract AssetRegistry is Ownable {
     error NotRegistered();
     error ZeroAddress();
     error StalenessTooHigh();
+    error UnsupportedFeedDecimals(uint8 feedDecimals);
 
     uint256 public constant MAX_STALENESS_CAP = 7 days;
     uint256 public constant DEFAULT_STALENESS = 72 hours;
@@ -39,6 +41,7 @@ contract AssetRegistry is Ownable {
         if (maxStaleness > MAX_STALENESS_CAP) revert StalenessTooHigh();
         if (maxStaleness == 0) maxStaleness = DEFAULT_STALENESS;
         if (_assets[token].registered) revert AlreadyRegistered();
+        _requirePriceDecimals(feed);
 
         _assets[token] = Asset({symbol: symbol, feed: feed, maxStaleness: maxStaleness, active: true, registered: true});
         _assetList.push(token);
@@ -57,8 +60,19 @@ contract AssetRegistry is Ownable {
     function setAssetFeed(address token, IAggregatorV3 feed) external onlyOwner {
         if (!_assets[token].registered) revert NotRegistered();
         if (address(feed) == address(0)) revert ZeroAddress();
+        _requirePriceDecimals(feed);
         _assets[token].feed = feed;
         emit AssetFeedUpdated(token, address(feed));
+    }
+
+    /// @notice Rejects a feed whose answers are not at the 8-decimal scale every
+    ///         ProtectionMath formula assumes. A 6-decimal feed would under-price a
+    ///         position 100x and an 18-decimal feed would over-price it 1e10x, silently
+    ///         and in the wrong direction for the buyer. Checked here rather than per
+    ///         read because registration is a one-time owner action.
+    function _requirePriceDecimals(IAggregatorV3 feed) internal view {
+        uint8 feedDecimals = feed.decimals();
+        if (feedDecimals != ProtectionMath.PRICE_DECIMALS) revert UnsupportedFeedDecimals(feedDecimals);
     }
 
     function getAsset(address token) external view returns (Asset memory) {
