@@ -102,7 +102,25 @@
         "note.create": "0xdd07a6b84f2fea4eb37ecdfe0beeca1b36ca2e7ff6f5745222173d0e983a6a76"
       },
       "readBack": "nextId 2; reserved 30000000 = 20e6 + 10e6; totalDeposits 50843750 == vault custody; availableCapacity 10675000; buyer 1949156250 = 1949437500 - premium; status ACTIVE",
-      "next": "Settle after expiry. The chain expiry is 1789410976 = Mon 2026-09-14 19:36:16 WAT (the 20:46 WAT recorded here earlier was wrong). Scheduled job g68ahfkb fires 19:47. Must run DEMO_SETTLE_PRICE=200e8, NOT the script default 100e8 — at $100 this note pays $5 and the zero-payout leg is lost. Baseline is post-note-1: totalDeposits 40843750, reserved 10000000, buyer 1959156250. Prefer two cast send calls; forge script --broadcast hung here and submitted nothing."
+      "next": "SETTLED 2026-09-14 — see settlement",
+      "settlement": {
+        "settledAt": "2026-09-14",
+        "txs": {
+          "DemoFeed.set(200e8)": "0xfd59997b1ed4daffd0c003bb6ef9200148c41aff7ec76ec7426d83d54fdd71ab",
+          "note.settle(2)": "0x42b9c2632f249ba4d36c7c5e151fa1b3ef3be47d3ebd5f70acdbc98041667c04"
+        },
+        "settlementPrice": "200e8 ($200, DemoFeed raised from $100 before settling — exactly this note's floor, verified by readback before the settle tx)",
+        "payoutToken": "0 (max(0, floor 10 - current 10) = 0 — the zero-payout leg)",
+        "noteStatus": "SETTLED (1)",
+        "vaultTotalDeposits": "40843750 UNCHANGED (a zero payout must not move deposits)",
+        "vaultReserved": "0 (pre-settle 10000000; the full liability released with nothing paid out)",
+        "vaultCustody": "40843750 == totalDeposits — reserved collateral fully backed, now with zero reserve",
+        "availableCapacity": "32675000 (the released 10e6 is fully reusable)",
+        "buyerMockUSDG": "1959156250 UNCHANGED — the buyer keeps the upside, exactly the product claim",
+        "events": "CapacityReleased(2, 10000000) and NoteSettled(2, 200e8, 0, buyer) only — NO PayoutExecuted and NO ERC20 Transfer, which is the point of this leg",
+        "gasNote": "settle(2) cost 115848 gas vs settle(1)'s 136151 — the missing transfer is visible in the gas",
+        "bothLegs": "Note 1 proved price-below-floor pays; note 2 proved price-at-floor pays nothing while still releasing the reserve. Both settlement branches are now proven end-to-end on live v4."
+      }
     }
   ],
   "config": {
