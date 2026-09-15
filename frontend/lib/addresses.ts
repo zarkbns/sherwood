@@ -13,13 +13,16 @@ export type ProtocolAddresses = {
 };
 
 const deployments: Partial<Record<number, ProtocolAddresses>> = {
-  // Robinhood Chain testnet (46630) — v4 deployed 2026-09-13, see deploy/deployments.json.
+  // Robinhood Chain testnet (46630) — v5 deployed 2026-09-14, see deploy/deployments.json.
   // Env overrides win, so a redeployment can be pointed at without a code change.
+  // v5 adds the sequencer gate, the 8-decimal feed check, the tightened vault rules and
+  // the eligibleAmount settlement basis; the v4 stack (0xE0909f8A…/0xb507dAD5…/0x2725cC6c…/
+  // 0x70A97604…) stays on-chain holding the demo history but is no longer the default.
   46630: {
-    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0xE0909f8A7f53B46305e9Ec8BC2615041b9B31ed4") as Address,
-    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0xb507dAD5584D9390Dd9F1C3304D69cf7a5711EAa") as Address,
-    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x2725cC6cf40d287cD2Daf19AbD133ddd6f6f07D3") as Address,
-    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0x70A976041099CDb07B3bAd408908d24833189Fd8") as Address,
+    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0x4DE45eCb64e53CB5985004eE73f75F8c4d86ddA1") as Address,
+    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x663da2d192C14735BD81ACf930AA0C3268bC6e3a") as Address,
+    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x1dd47dE13598e2aa3C103927A1c2C0fb5aFa070D") as Address,
+    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0x073AEBD5fE17D7b6633664486C5647514e062Ca1") as Address,
   },
 };
 
