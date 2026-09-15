@@ -124,6 +124,26 @@
       }
     }
   ],
+  "v5Demo": {
+    "purpose": "Prove the eligibleAmount settlement basis on live v5: three notes with IDENTICAL terms settle at the SAME feed price and pay out exactly in proportion to the stock the owner still holds at each settle moment — full / partial / zero ownership. v4 could never show this; only the v5 source computes payouts on min(note.amount, balanceOf(owner)).",
+    "terms": "Each note: 1 TSLA (1e18, 18 dec), entry 200e8 ($200, DemoFeed), level 80e16 (floor $160), duration 1 day, premium 4.5e6 MockUSDG ($4.50 at 225 bps), liability reserved 160e6 ($160).",
+    "phase1": {
+      "date": "2026-09-15",
+      "fundingTxs": {
+        "MockUSDG.faucet()": "0x048e45fdfdd880cfc713ce95740430be75dfa01439429113a49a298bef9b7354",
+        "approve(vault, 1100e6)": "0x912cd48c4f8025be609d71ec8b789c8322a1442788a7a548fd6f2d4f1859047e",
+        "vault.deposit(1000e6)": "0x851f35b833006f5f4a0d0f1fa4a65acc0eec3f3938d8747277ab153ca345f336"
+      },
+      "createTxs": {
+        "note1": "0xea70804322c7cf265cfe4b8927a256b5918d6bb78c2027d7c6dc9e473f9ba79b",
+        "note2": "0x738f5a1d900f9087dec3057a8e35699fa57ce5ce765a3777231575a44122f479",
+        "note3": "0x92c1cd57e2a05eca577f3fa15951c4cd4ab626b6c9b1e9e663771f9896be307f"
+      },
+      "tslaTransferSmokeTest": "0xbc287215922f2194ccdf6797cd9a514468725417851f60a94a3e78a881d7b8d1 — 1 wei TSLA to 0x…dEaD proved the stock token's transfer works before the partial/zero legs depend on it (buyer 15e18 -> 15e18 - 1 wei)",
+      "readBack": "nextId 3; deposits 1013500000 = 1000e6 deposit + 3x4.5e6 premiums; reserved 480000000 = 3x160e6; custody 1013500000 == totalDeposits; availableCapacity 330800000 = 0.8x1013.5e6 - 480e6; buyer MockUSDG 1945656250 = 1959156250 - 13.5e6 premiums; all three notes ACTIVE with owner/asset/amount/entry/level/expiry/premium/floor/liability read back identical except expiry (12:34:46 / :49 / :52 WAT on 2026-09-16, three creates 3s apart)"
+    },
+    "phase2Plan": "After expiry, at the SAME feed price of 100e8 for all three legs: settle note 1 with the full position still held (expect payout 60e6 = floor 160 - current 100); sell down to exactly 0.5 TSLA and settle note 2 (expect 30e6 = 0.5x160 - 0.5x100, exactly half of leg 1 at the same price); sell every remaining wei and settle note 3 (expect payout 0 with the full 160e6 reserve released — a zero payout caused by OWNERSHIP alone, since the same price paid 60e6 on note 1). Final audit: deposits 923500000, reserved 0, custody 923500000 == deposits, availableCapacity 738800000, buyer 2035656250 = 1945656250 + 60e6 + 30e6 + 0, buyer TSLA 0."
+  },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
