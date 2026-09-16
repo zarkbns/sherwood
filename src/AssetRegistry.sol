@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Ownable} from "./Ownable.sol";
 import {ProtectionMath} from "./ProtectionMath.sol";
 import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title AssetRegistry
 /// @notice Registers supported stock tokens and their Chainlink price feeds.
@@ -29,9 +30,15 @@ contract AssetRegistry is Ownable {
     error ZeroAddress();
     error StalenessTooHigh();
     error UnsupportedFeedDecimals(uint8 feedDecimals);
+    error UnsupportedTokenDecimals(uint8 tokenDecimals);
 
     uint256 public constant MAX_STALENESS_CAP = 7 days;
     uint256 public constant DEFAULT_STALENESS = 72 hours;
+
+    /// @notice The only stock-token scale every ProtectionMath formula assumes. The
+    ///         feed's 8-decimal scale is validated for the same reason; the token side
+    ///         of the same multiplication went unchecked until now.
+    uint8 public constant STOCK_TOKEN_DECIMALS = 18;
 
     function registerAsset(address token, string calldata symbol, IAggregatorV3 feed, uint256 maxStaleness)
         external
@@ -42,6 +49,7 @@ contract AssetRegistry is Ownable {
         if (maxStaleness == 0) maxStaleness = DEFAULT_STALENESS;
         if (_assets[token].registered) revert AlreadyRegistered();
         _requirePriceDecimals(feed);
+        _requireTokenDecimals(token);
 
         _assets[token] = Asset({symbol: symbol, feed: feed, maxStaleness: maxStaleness, active: true, registered: true});
         _assetList.push(token);
@@ -73,6 +81,17 @@ contract AssetRegistry is Ownable {
     function _requirePriceDecimals(IAggregatorV3 feed) internal view {
         uint8 feedDecimals = feed.decimals();
         if (feedDecimals != ProtectionMath.PRICE_DECIMALS) revert UnsupportedFeedDecimals(feedDecimals);
+    }
+
+    /// @notice Rejects a stock token that does not count in 18-dec units, which is what
+    ///         `usdValue`/`protectedValue` silently assume for the `amount` input. A
+    ///         6-dec token would under-price a position 1e12x — the buyer pays dust for
+    ///         protection that can never pay — and a 20-dec token would over-price it,
+    ///         eating real capacity with phantom liability. Fail-closed: a token that
+    ///         cannot answer decimals() at all is not registrable.
+    function _requireTokenDecimals(address token) internal view {
+        uint8 tokenDecimals = IERC20(token).decimals();
+        if (tokenDecimals != STOCK_TOKEN_DECIMALS) revert UnsupportedTokenDecimals(tokenDecimals);
     }
 
     function getAsset(address token) external view returns (Asset memory) {

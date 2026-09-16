@@ -5,18 +5,22 @@ import {TestBase} from "./TestBase.sol";
 import {AssetRegistry} from "../src/AssetRegistry.sol";
 import {Ownable} from "../src/Ownable.sol";
 import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
-import {MockAggregator} from "./Mocks.sol";
+import {MockAggregator, MockERC20} from "./Mocks.sol";
 
 contract AssetRegistryTest is TestBase {
     AssetRegistry internal registry;
     MockAggregator internal feed;
 
-    address internal tsLA = vmMakeAddr("TSLA token");
-    address internal amzn = vmMakeAddr("AMZN token");
+    address internal tsLA;
+    address internal amzn;
 
     function setUp() public {
         registry = new AssetRegistry();
         feed = new MockAggregator(8);
+        // Registration validates the stock token's decimals (18), so the fixture tokens
+        // are real 18-dec ERC20s rather than bare addresses.
+        tsLA = address(new MockERC20("Tesla", "TSLA", 18));
+        amzn = address(new MockERC20("Amazon", "AMZN", 18));
     }
 
     function test_RegisterAsset_StoresAllFields() public {
@@ -65,6 +69,26 @@ contract AssetRegistryTest is TestBase {
     function test_RegisterAsset_RevertsOnStalenessAboveCap() public {
         vmExpectRevert(AssetRegistry.StalenessTooHigh.selector);
         registry.registerAsset(tsLA, "TSLA", IAggregatorV3(address(feed)), 7 days + 1);
+    }
+
+    function test_RegisterAsset_RevertsOnNonEighteenDecToken() public {
+        // The mirror of the feed-decimals check: the amount side of every money
+        // formula assumes 18-dec units, so anything else is refused.
+        MockERC20 sixDec = new MockERC20("Six", "SIX", 6);
+        vmExpectRevertData(abi.encodeWithSelector(
+            AssetRegistry.UnsupportedTokenDecimals.selector, 6));
+        registry.registerAsset(address(sixDec), "SIX", IAggregatorV3(address(feed)), 72 hours);
+
+        MockERC20 nineteenDec = new MockERC20("Nineteen", "NINETEEN", 19);
+        vmExpectRevertData(abi.encodeWithSelector(
+            AssetRegistry.UnsupportedTokenDecimals.selector, 19));
+        registry.registerAsset(address(nineteenDec), "NINETEEN", IAggregatorV3(address(feed)), 72 hours);
+    }
+
+    function test_RegisterAsset_RevertsOnCodelessToken() public {
+        // A token that cannot answer decimals() at all is not registrable: fail-closed.
+        vmExpectRevert();
+        registry.registerAsset(vmMakeAddr("codeless"), "NOPE", IAggregatorV3(address(feed)), 72 hours);
     }
 
     function test_RegisterAsset_RevertsWhenNotOwner() public {
