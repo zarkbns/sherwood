@@ -329,13 +329,26 @@ contract SherwoodVaultTest is TestBase {
         vault.setBufferBps(3000);
     }
 
-    function test_SetNoteContract_RotatesAndValidates() public {
+    function test_SetNoteContract_IsSetOnce() public {
+        // The fixture wired this vault at setUp; a second binding — even to a
+        // legitimate address — is refused, because repointing mid-life would strand
+        // the active notes' reserves behind the old contract's onlyNote gate.
         address newNote = vmMakeAddr("note v2");
+        vmExpectRevert(SherwoodVault.AlreadySet.selector);
         vault.setNoteContract(newNote);
-        assertEq(vault.noteContract(), newNote, "note contract should rotate");
 
-        vmExpectRevert(SherwoodVault.InvalidAmount.selector);
+        vmExpectRevert(SherwoodVault.AlreadySet.selector);
         vault.setNoteContract(address(0));
+        assertEq(vault.noteContract(), address(note), "binding unchanged");
+
+        // A fresh vault takes exactly one binding and then locks.
+        SherwoodVault fresh = new SherwoodVault(usdg, 2000);
+        vmExpectRevert(SherwoodVault.InvalidAmount.selector);
+        fresh.setNoteContract(address(0));
+        fresh.setNoteContract(vmMakeAddr("first note"));
+        assertEq(fresh.noteContract(), vmMakeAddr("first note"), "first binding lands");
+        vmExpectRevert(SherwoodVault.AlreadySet.selector);
+        fresh.setNoteContract(vmMakeAddr("second note"));
     }
 
     function test_SetNoteContract_RevertsWhenNotOwner() public {

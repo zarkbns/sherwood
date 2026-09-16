@@ -36,6 +36,7 @@ contract SherwoodVault is Ownable {
     error InvalidAmount();
     error TransferFailed();
     error EncumberedFunds();
+    error AlreadySet();
 
     uint256 public constant MAX_BUFFER_BPS = 5000;
 
@@ -134,7 +135,15 @@ contract SherwoodVault is Ownable {
         _setBuffer(newBufferBps);
     }
 
+    /// @notice Bind the note contract — once. The vault keeps one global `reserved`
+    ///         ledger and trusts this address to move it honestly, so repointing
+    ///         mid-life would strand every active note behind the old contract's
+    ///         onlyNote gate (and hand whatever address is wired the reserve ledger).
+    ///         Wiring happens exactly once at deploy; upgrades are full-stack
+    ///         redeploys, never a pointer swap — the settlement token is immutable for
+    ///         the same reason.
     function setNoteContract(address _noteContract) external onlyOwner {
+        if (noteContract != address(0)) revert AlreadySet();
         if (_noteContract == address(0)) revert InvalidAmount();
         noteContract = _noteContract;
         emit NoteContractSet(_noteContract);
