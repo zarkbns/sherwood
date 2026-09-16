@@ -13,16 +13,18 @@ export type ProtocolAddresses = {
 };
 
 const deployments: Partial<Record<number, ProtocolAddresses>> = {
-  // Robinhood Chain testnet (46630) — v5 deployed 2026-09-14, see deploy/deployments.json.
+  // Robinhood Chain testnet (46630) — v6 deployed 2026-09-16, see deploy/deployments.json.
   // Env overrides win, so a redeployment can be pointed at without a code change.
-  // v5 adds the sequencer gate, the 8-decimal feed check, the tightened vault rules and
-  // the eligibleAmount settlement basis; the v4 stack (0xE0909f8A…/0xb507dAD5…/0x2725cC6c…/
-  // 0x70A97604…) stays on-chain holding the demo history but is no longer the default.
+  // v6 carries the six audit fixes (aggregate exposure cap, 30-day claim window with
+  // forfeit, per-note settlement feed binding, set-once note-contract binding, 18-dec
+  // token validation) on top of v5's eligibleAmount basis; the v5 stack (0x4DE45eCb…/
+  // 0x663da2d1…/0x1dd47dE1…/0x073AEBD5…) stays on-chain holding the v5 demo evidence
+  // but is no longer the default.
   46630: {
-    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0x4DE45eCb64e53CB5985004eE73f75F8c4d86ddA1") as Address,
-    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x663da2d192C14735BD81ACf930AA0C3268bC6e3a") as Address,
-    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x1dd47dE13598e2aa3C103927A1c2C0fb5aFa070D") as Address,
-    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0x073AEBD5fE17D7b6633664486C5647514e062Ca1") as Address,
+    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0xC3aCC52C3dAF1c2D1B65725781063dCfc6a1c6Fd") as Address,
+    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x8366fcabD007361D899A55A6dA3455531C070096") as Address,
+    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x8F7D2099738e72e40CfF2e6fF5918d11f516f988") as Address,
+    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0xb2F4391cf4c997C71bDC39d831DD389cECe06729") as Address,
   },
 };
 
