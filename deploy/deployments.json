@@ -171,6 +171,28 @@
       "verdict": "The eligibleAmount settlement basis is proven live on v5: three identical notes settled at one price paid 60/30/0 exactly proportional to the stock the owner still held at each settle moment, with every reserve releasing in full and the vault solvent at every step. Deployed v4 would have paid 60/60/60 — this is behavioral proof that commit 569ef97 changed settlement, not just tests."
     }
   },
+  "v6Demo": {
+    "asset": "Fresh demo asset, because the TSLA proxy's supply is AccessControl-locked away from the deployer (mint reverts AccessControlUnauthorizedAccount(deployer, MINTER_ROLE)) and the v5 position was fully sold: AMZN demo token 0xD63Fd09c46A96fF73B9EC7b941AFf784C4C9f3EF (MockERC20, 18 dec, public mint) + DemoFeed 0x81eC7Fa98007Ed222352c1fA1a0DC9321FCd90b4 (8 dec, $200). Registration passed the v6 18-decimals token validation.",
+    "terms": "Each note: 1 AMZN (1e18), entry 200e8 ($200), level 80e16 (floor $160), duration 1 day, premium 4.5e6 MockUSDG ($4.50 at 225 bps), liability reserved 160e6 ($160).",
+    "phase1": {
+      "date": "2026-09-16",
+      "txs": {
+        "deployToken": "forge create MockERC20 — AMZN at 0xD63Fd09c46A96fF73B9EC7b941AFf784C4C9f3EF",
+        "deployFeed": "forge create DemoFeed(8, 200e8) — 0x81eC7Fa98007Ed222352c1fA1a0DC9321FCd90b4",
+        "registerAsset": "0xe02b37e8b8ec1f4575ae0fe2f72b3d5b7fc2339cc8dfd4e7e4d165af537eba82",
+        "mint15AMZN": "0x87119406fe3c84b54f301fda034439ad7820ad8dc29dd55361a995acd1c78fed",
+        "faucet": "0xbde36b1488b810f414a44e200d755015fffcab720562cc1a86ba8b34188cdf4d",
+        "approve": "0x85713839d276a2051e9f91eacb51c0c8da5df6610c1a789b0ee169a0ea42bbf5",
+        "deposit": "0xc9b55a6ead672dc305830500283609d01158620ea1c48dc10dad0093c45b278d",
+        "note1": "0x6caa5bccc82f524fbd78a36ed7c59ff445d95690c82c248952e4de7a94e9dbfa",
+        "note2": "0x3dc01e0dd01fcfe45dc2858d09858e719a22fb9d349d456775d46a7cf79071fc",
+        "note3": "0x8899e82c63384455cec4f1edbfcfc341ebf2817f237bd2e5b51efab5fc9043df",
+        "stackingAttempt": "0xda8b692f3bb1a5c580f462fc3b32d6d5c9b4eba45576486eed316a7d009de207 (status 0 — REVERTED on-chain: InsufficientPosition(AMZN, 15e18, 16e18); the aggregate exposure cap refused a 4th note that would have put the stack at 16 on a 15-share position — the F1 fix proven live)"
+      },
+      "readBack": "nextId 3 (the failed attempt consumed nothing); activeProtected(buyer, AMZN) 3e18; deposits 1013500000 = 1000e6 deposit + 3x4.5e6 premiums; reserved 480000000 = 3x160e6; custody 1013500000 == totalDeposits; availableCapacity 330800000; buyer 15 AMZN / 2022156250 MockUSDG (2035656250 + 1000e6 faucet - 1000e6 deposit - 13.5e6 premiums); notes 1-3 ACTIVE, expiries 23:36:54 / :57 / :00 WAT on 2026-09-17"
+    },
+    "phase2Plan": "After expiry (2026-09-17 ~23:37 WAT), set the AMZN DemoFeed to 100e8 — ONE price for all three legs — then: settle(1) with 15 AMZN held -> payout 60e6; transfer 14.5e18 AMZN to 0x…dEaD (held 0.5) -> settle(2) -> 30e6; transfer the rest (held 0) -> settle(3) -> payout 0 with the full 160e6 reserve released and NO PayoutExecuted/Transfer. Expected final: deposits 923.5e6, reserved 0, custody == deposits, buyer +90e6 total. Same 60/30/0 proof as v5, now on the audited v6 code with the claim window and bound feed live."
+  },
   "config": {
     "bufferBps": 2000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
