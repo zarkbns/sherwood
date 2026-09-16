@@ -410,6 +410,106 @@ contract ProtectionNoteTest is NoteFixture {
         assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "vault stays fully backed");
     }
 
+    // ------------------------------------------------------------------
+    // Aggregate exposure: one position cannot back a stack of notes
+    // ------------------------------------------------------------------
+
+    /// @dev Funds `who` with settlement tokens and exactly `stockAmount` of stock — a
+    ///      small, precisely-known position for aggregate-cap tests.
+    function _fundSmallHolder(address who, uint256 stockAmount, uint256 settlementAmount) internal {
+        stock.mint(who, stockAmount);
+        settlement.mint(who, settlementAmount);
+        vmStartPrank(who);
+        settlement.approve(address(vault), settlementAmount);
+        vmStopPrank();
+    }
+
+    function test_Create_AggregateCap_RevertsOnStackingBeyondPosition() public {
+        _fundSmallHolder(trader, 5e18, 1e24);
+        assertEq(note.activeProtected(trader, tsla), 0, "no exposure at start");
+
+        // 3 of 5: both halves of the guard pass.
+        assertEq(_buy(trader, 3e18, LEVEL_80, DUR_1D), 1, "first note");
+        assertEq(note.activeProtected(trader, tsla), 3e18, "first note committed");
+
+        // Another 3 would put the stack at 6 on a 5-share position. Rejected, and the
+        // revert names the aggregate requirement (6), not just the per-call one.
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.InsufficientPosition.selector, tsla, 5e18, 6e18));
+        vmPrank(trader);
+        note.create(tsla, 3e18, LEVEL_80, DUR_1D);
+        assertEq(note.activeProtected(trader, tsla), 3e18, "failed stack changed nothing");
+
+        // 2 more lands the stack exactly at the holding: allowed.
+        assertEq(_buy(trader, 2e18, LEVEL_80, DUR_1D), 2, "second note to the cap");
+        assertEq(note.activeProtected(trader, tsla), 5e18, "stack at the cap");
+
+        // One wei beyond the position is still too much.
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.InsufficientPosition.selector, tsla, 5e18, 5e18 + 1));
+        vmPrank(trader);
+        note.create(tsla, 1, LEVEL_80, DUR_1D);
+    }
+
+    function test_Settle_FreesAggregateExposureForNewNotes() public {
+        _fundSmallHolder(trader, 5e18, 1e24);
+        uint256 first = _buy(trader, 3e18, LEVEL_80, DUR_1D);
+        assertEq(_buy(trader, 2e18, LEVEL_80, DUR_1D), 2, "stack at cap");
+        assertEq(note.activeProtected(trader, tsla), 5e18, "fully committed");
+
+        vmWarp(T0 + DUR_1D + 1);
+        feed.setPrice(60e8);
+        note.settle(first);
+
+        assertEq(note.activeProtected(trader, tsla), 2e18, "settled note freed its commitment");
+
+        // The freed exposure backs a new note without minting more stock.
+        assertEq(_buy(trader, 2e18, LEVEL_80, DUR_1D), 3, "freed exposure reusable");
+    }
+
+    function test_Settle_ZeroPayout_StillFreesAggregateExposure() public {
+        _fundSmallHolder(trader, 5e18, 1e24);
+        uint256 id = _buy(trader, 3e18, LEVEL_80, DUR_1D);
+
+        // Full desertion: payout is zero, but the commitment must still free up.
+        vmStartPrank(trader);
+        stock.transfer(buyer, 5e18);
+        vmStopPrank();
+
+        vmWarp(T0 + DUR_1D + 1);
+        feed.setPrice(60e8);
+        uint256 before = settlement.balanceOf(trader);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(trader), before, "no payout on a deserted note");
+        assertEq(note.activeProtected(trader, tsla), 0, "deserted note freed its commitment");
+
+        // Nothing blocks new protection once the holder actually holds stock again.
+        stock.mint(trader, 2e18);
+        assertEq(_buy(trader, 2e18, LEVEL_80, DUR_1D), 2, "rebuilt position protects again");
+    }
+
+    function test_Create_AggregateCap_IsPerAsset() public {
+        _fundVault(1000e18); // headroom for a second full-size note
+        MockERC20 amzn = new MockERC20("Amazon", "AMZN", 18);
+        MockAggregator amznFeed = new MockAggregator(8);
+        amznFeed.setPrice(int256(ENTRY_100));
+        registry.registerAsset(address(amzn), "AMZN", amznFeed, 72 hours);
+
+        _fundSmallHolder(trader, 5e18, 1e24);
+        amzn.mint(trader, 5e18);
+
+        // The TSLA stack is fully committed...
+        assertEq(_buy(trader, 5e18, LEVEL_80, DUR_1D), 1, "tsla at cap");
+        // ...and AMZN is a different (owner, asset) pair with its own position.
+        vmPrank(trader);
+        uint256 amznId = note.create(address(amzn), 5e18, LEVEL_80, DUR_1D);
+        assertEq(amznId, 2, "second asset note created");
+
+        assertEq(note.activeProtected(trader, tsla), 5e18, "tsla committed");
+        assertEq(note.activeProtected(trader, address(amzn)), 5e18, "amzn committed separately");
+    }
+
     function test_Settle_RevertsBeforeExpiry() public {
         uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
         vmWarp(T0 + DUR_7D - 1);

@@ -41,6 +41,13 @@ contract ProtectionNote {
     mapping(uint256 => Note) public notes;
     uint256 public nextId;
 
+    /// @notice Sum of `note.amount` across a holder's ACTIVE notes, per asset. Create
+    ///         refuses to push it past the holder's current stock-token balance, so the
+    ///         protection a (owner, asset) pair has sold is always backed by a position
+    ///         that exists at the moment it is sold — one position cannot back an
+    ///         unbounded stack of notes. Decremented when a note settles.
+    mapping(address => mapping(address => uint256)) public activeProtected;
+
     event NoteCreated(
         uint256 indexed noteId,
         address indexed owner,
@@ -86,14 +93,20 @@ contract ProtectionNote {
         // Reverts on unsupported level/duration before any state changes.
         ProtectionMath.premiumRateBps(level, duration);
 
-        // Position guard: the caller must hold the tokens they are protecting. Checked
-        // before any oracle read, capacity reservation, or premium movement, so a failed
-        // hold collects and reserves nothing. Balance is verified, not transferred — the
-        // buyer keeps their stock and all upside; only the downside is insured.
-        // Scoped so its stack slot is freed before the pricing locals below.
+        // Position guard, two halves. Per-call: the caller must hold the tokens they
+        // are protecting. Aggregate: their whole stack of active notes on this asset
+        // must stay inside that same holding — without it, one balance would pass this
+        // check any number of times and the protocol would quietly sell N copies of one
+        // position's downside, each individually "backed" by the same shares. Both are
+        // checked before any oracle read, capacity reservation, or premium movement, so
+        // a failed hold collects and reserves nothing. Balance is verified, never
+        // transferred — the buyer keeps their stock and all upside; only the downside
+        // is insured. Scoped so its stack slots are freed before the pricing locals.
         {
             uint256 held = IERC20(asset).balanceOf(msg.sender);
+            uint256 committed = activeProtected[msg.sender][asset];
             if (held < amount) revert InsufficientPosition(asset, held, amount);
+            if (committed + amount > held) revert InsufficientPosition(asset, held, committed + amount);
         }
 
         (uint256 price8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
@@ -114,6 +127,11 @@ contract ProtectionNote {
         // next one instead of overwriting this note and double-reserving its id. A
         // revert anywhere below still rolls the id back with the rest of the call.
         nextId = noteId;
+        // Commit the exposure in the same pre-vault frame as the id: a hook re-entering
+        // through the premium pull then sees a ledger that already counts this note's
+        // position, so the re-entrant create is measured against a truthful aggregate.
+        // A revert anywhere below rolls the increment back with the rest of the call.
+        activeProtected[msg.sender][asset] += amount;
         // Capacity check and premium collection happen inside the vault, atomically,
         // before the note exists. If anything reverts, nothing is collected.
         vault.reserveFor(noteId, msg.sender, premiumToken, liabilityToken);
@@ -175,6 +193,13 @@ contract ProtectionNote {
         // strand a note in SETTLED.
         note.status = Status.SETTLED;
         address recipient = note.owner;
+
+        // The note's protected amount leaves the holder's aggregate exposure whether
+        // the payout was full, partial, or zero — the note is gone either way, and the
+        // position it committed should be free to back new protection. Cannot underflow:
+        // create() credited exactly this amount for this note, and the status gate above
+        // means it is consumed exactly once.
+        activeProtected[recipient][note.asset] -= note.amount;
 
         AssetRegistry.Asset memory entry = registry.getAsset(note.asset);
         (uint256 settlementPrice8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
