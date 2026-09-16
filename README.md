@@ -41,6 +41,13 @@ payout = max(0, protectedValue - currentValue)
 
 **Key insight:** You keep all upside. Sherwood only covers the gap below your floor. The maximum possible payout is the floor value itself (`protectedValue`) — that's what the vault reserves per note. And because a note protects a *real position*, the payout covers only the shares you still hold when it settles: sell half, get half the payout; sell all, get nothing. The reserved collateral releases either way.
 
+**Three bounds around that basis:**
+- **One position, one stack.** You can't buy protection on shares that already back active notes — the aggregate of your active notes on an asset can never exceed the stock you actually hold.
+- **Claim deadline.** Payouts are collectible from expiry until 30 days after it (the longest priced term); miss the window and the payout is forfeited — the reserve still releases, so the vault never strands.
+- **Your note settles on its own feed.** The price source is bound when you buy; later feed rotations only affect notes that don't exist yet.
+
+**Known limitation:** eligibility is checked *at settlement* — it's a snapshot, not proof you held through the whole term. A buyer who sells and re-buys before settling passes it. Closing that would require taking custody of the stock, which the protocol deliberately doesn't do.
+
 ---
 
 ## Core Concepts

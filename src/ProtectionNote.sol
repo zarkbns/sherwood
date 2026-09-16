@@ -94,9 +94,11 @@ contract ProtectionNote {
 
     /// @notice Buy protection: reads the verified entry price, checks vault capacity,
     ///         collects the premium and reserves collateral atomically, then records
-    ///         the note. The buyer must already hold `amount` of the stock token — this
-    ///         protects a real position, not a naked bet. The stock is never taken into
-    ///         custody; the note is cash-settled against the price difference.
+    ///         the note. The buyer must already hold `amount` of the stock token, and
+    ///         their whole stack of active notes on the asset must stay inside that
+    ///         holding — aggregate coverage equals aggregate real position. The stock is
+    ///         never taken into custody; the note is cash-settled against the price
+    ///         difference, and the feed it settles against is bound here.
     function create(address asset, uint256 amount, uint256 level, uint256 duration)
         external
         returns (uint256 noteId)
@@ -251,6 +253,16 @@ contract ProtectionNote {
     ///         of the protected amount and the balance its owner holds at settlement.
     ///         Read, never written — the note's recorded amount stays fixed and immutable,
     ///         only the payout it can produce shrinks.
+    ///
+    ///         PRECISE LIMITATION: this is a spot read at the settlement instant. It is
+    ///         proof of holdings-at-settlement, NOT proof of continuous ownership over
+    ///         the protection window — a buyer who sold the position and re-acquires the
+    ///         same amount (by rebuying at the crashed price, flash borrow, or any
+    ///         transfer) passes it and collects the full payout. Enforcing continuous
+    ///         ownership would require custody or checkpointed holding, both rejected to
+    ///         keep the model cash-settled and non-custodial. The aggregate cap on
+    ///         create() bounds how much exposure one balance can stack, but cannot close
+    ///         this gap.
     function _eligibleAmount(Note storage note) internal view returns (uint256) {
         uint256 held = IERC20(note.asset).balanceOf(note.owner);
         return held < note.amount ? held : note.amount;
