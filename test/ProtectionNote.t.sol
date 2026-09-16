@@ -601,6 +601,60 @@ contract ProtectionNoteTest is NoteFixture {
     }
 
     // ------------------------------------------------------------------
+    // Settlement feed binding: rotation cannot reprice live notes
+    // ------------------------------------------------------------------
+
+    function test_Create_BindsTheFeedItWasPricedAgainst() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+        assertEq(address(note.noteFeeds(id)), address(feed), "creation feed bound");
+        assertEq(note.noteMaxStaleness(id), 72 hours, "creation staleness bound");
+
+        // Rotation swaps the registry entry but leaves the live binding alone.
+        MockAggregator feedB = new MockAggregator(8);
+        feedB.setPrice(int256(200e8));
+        registry.setAssetFeed(tsla, feedB);
+
+        assertEq(address(note.noteFeeds(id)), address(feed), "existing binding survives rotation");
+        assertEq(address(note.registry().getAsset(tsla).feed), address(feedB), "registry did rotate");
+    }
+
+    function test_Settle_LiveNoteUsesItsBoundFeedNotTheRotation() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+
+        MockAggregator feedB = new MockAggregator(8);
+        feedB.setPrice(int256(200e8));
+        registry.setAssetFeed(tsla, feedB);
+
+        // Old note: floor 400 (entry 100, 80%). Warp first, THEN re-stamp its bound
+        // feed — setPrice stamps at the current block, so the order decides freshness.
+        // Re-stamped at 60e8 it pays 100; had the rotation leaked in (200e8, above the
+        // floor), it would pay 0.
+        vmWarp(T0 + DUR_7D + 1);
+        feed.setPrice(60e8);
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+        assertEq(settlement.balanceOf(buyer) - buyerBefore, 100e18, "settled on the bound feed");
+    }
+
+    function test_Settle_NewNotesUseTheRotatedFeed() public {
+        _fundVault(1000e18); // headroom: a $200 entry reserves 800, not 400
+        MockAggregator feedB = new MockAggregator(8);
+        feedB.setPrice(int256(200e8));
+        registry.setAssetFeed(tsla, feedB);
+
+        // Created after the rotation: entry 200e8, floor 640, bound to feed B.
+        vmPrank(buyer);
+        uint256 id = note.create(tsla, AMOUNT_5, LEVEL_80, DUR_7D);
+        assertEq(address(note.noteFeeds(id)), address(feedB), "new note binds the rotated feed");
+
+        vmWarp(T0 + DUR_7D + 1);
+        feedB.setPrice(int256(100e8)); // 800 floor - 500 current = 300 on B; 500 on A
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+        assertEq(settlement.balanceOf(buyer) - buyerBefore, 300e18, "settled on feed B");
+    }
+
+    // ------------------------------------------------------------------
     // views
     // ------------------------------------------------------------------
 

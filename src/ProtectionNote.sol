@@ -5,6 +5,7 @@ import {AssetRegistry} from "./AssetRegistry.sol";
 import {ProtectionOracle} from "./ProtectionOracle.sol";
 import {ProtectionMath} from "./ProtectionMath.sol";
 import {SherwoodVault} from "./SherwoodVault.sol";
+import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title ProtectionNote
@@ -47,6 +48,14 @@ contract ProtectionNote {
     ///         that exists at the moment it is sold — one position cannot back an
     ///         unbounded stack of notes. Decremented when a note settles.
     mapping(address => mapping(address => uint256)) public activeProtected;
+
+    /// @notice The settlement feed (and its staleness bound) each note was priced
+    ///         against, bound at creation. Settlement reads these — never the registry's
+    ///         current entry — so rotating an asset's feed can only ever affect notes
+    ///         that do not exist yet; live notes always settle against the source they
+    ///         were contracted with.
+    mapping(uint256 => IAggregatorV3) public noteFeeds;
+    mapping(uint256 => uint256) public noteMaxStaleness;
 
     event NoteCreated(
         uint256 indexed noteId,
@@ -139,6 +148,10 @@ contract ProtectionNote {
         // position, so the re-entrant create is measured against a truthful aggregate.
         // A revert anywhere below rolls the increment back with the rest of the call.
         activeProtected[msg.sender][asset] += amount;
+        // Bind the settlement basis at creation: this note settles against the feed it
+        // was priced with, whatever the registry does to the asset later.
+        noteFeeds[noteId] = entry.feed;
+        noteMaxStaleness[noteId] = entry.maxStaleness;
         // Capacity check and premium collection happen inside the vault, atomically,
         // before the note exists. If anything reverts, nothing is collected.
         vault.reserveFor(noteId, msg.sender, premiumToken, liabilityToken);
@@ -215,11 +228,13 @@ contract ProtectionNote {
         // on an unclaimed or unreadable note — but the payout is forfeited. The forfeit
         // path skips the price read entirely, so even a permanently dead feed cannot
         // block the release.
+        //
+        // The price comes from the feed bound at creation — never the registry's current
+        // entry — so a rotation can only reprice notes that do not exist yet.
         uint256 payoutToken;
         uint256 settlementPrice8;
         if (block.timestamp <= note.expiry + SETTLEMENT_WINDOW) {
-            AssetRegistry.Asset memory entry = registry.getAsset(note.asset);
-            (settlementPrice8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
+            (settlementPrice8,) = oracle.getPrice(noteFeeds[noteId], noteMaxStaleness[noteId]);
 
             uint256 payoutUSD18 =
                 ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
