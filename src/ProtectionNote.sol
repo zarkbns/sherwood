@@ -70,6 +70,13 @@ contract ProtectionNote {
     error NotExpired();
     error AlreadySettled();
 
+    /// @notice How long after expiry a note can still collect its payout. Bounded by the
+    ///         longest term the rate table prices, so realized tail risk can never
+    ///         outrun the duration the premium charged. Past the window the note still
+    ///         settles — the reserve releases — but the payout is forfeited, like an
+    ///         insurance claim past its filing deadline.
+    uint256 public constant SETTLEMENT_WINDOW = 30 days;
+
     constructor(AssetRegistry _registry, ProtectionOracle _oracle, SherwoodVault _vault) {
         registry = _registry;
         oracle = _oracle;
@@ -201,15 +208,27 @@ contract ProtectionNote {
         // means it is consumed exactly once.
         activeProtected[recipient][note.asset] -= note.amount;
 
-        AssetRegistry.Asset memory entry = registry.getAsset(note.asset);
-        (uint256 settlementPrice8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
+        // Claim window: the premium prices this note's term, so the payout is the floor
+        // gap at the first accepted fresh price between expiry and expiry +
+        // SETTLEMENT_WINDOW (the longest term the rate table prices). Past that deadline
+        // the protection is over: the note still settles — a reserve must never strand
+        // on an unclaimed or unreadable note — but the payout is forfeited. The forfeit
+        // path skips the price read entirely, so even a permanently dead feed cannot
+        // block the release.
+        uint256 payoutToken;
+        uint256 settlementPrice8;
+        if (block.timestamp <= note.expiry + SETTLEMENT_WINDOW) {
+            AssetRegistry.Asset memory entry = registry.getAsset(note.asset);
+            (settlementPrice8,) = oracle.getPrice(entry.feed, entry.maxStaleness);
 
-        uint256 payoutUSD18 =
-            ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
-        uint256 payoutToken = ProtectionMath.toTokenUnits(payoutUSD18, vault.token().decimals());
+            uint256 payoutUSD18 =
+                ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
+            payoutToken = ProtectionMath.toTokenUnits(payoutUSD18, vault.token().decimals());
+        }
 
         vault.settlePayout(noteId, recipient, note.liabilityToken, payoutToken);
 
+        // settlementPrice is 0 on the forfeit path: no price was read and none is owed.
         emit NoteSettled(noteId, settlementPrice8, payoutToken, recipient);
     }
 
@@ -224,9 +243,11 @@ contract ProtectionNote {
 
     /// @notice Payout this note would produce at a hypothetical settlement price (USD-18),
     ///         capped by the position the owner still holds — the same basis settle() uses,
-    ///         so the view never overstates what settlement can actually pay.
+    ///         so the view never overstates what settlement can actually pay. Zero once the
+    ///         claim window has closed: settle() forfeits the payout past it too.
     function calculatePayout(uint256 noteId, uint256 settlementPrice8) external view returns (uint256) {
         Note storage note = notes[noteId];
+        if (block.timestamp > note.expiry + SETTLEMENT_WINDOW) return 0;
         return ProtectionMath.payout(_eligibleAmount(note), note.entryPrice, note.level, settlementPrice8);
     }
 

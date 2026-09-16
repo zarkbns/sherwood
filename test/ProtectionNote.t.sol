@@ -555,6 +555,52 @@ contract ProtectionNoteTest is NoteFixture {
     }
 
     // ------------------------------------------------------------------
+    // Claim window: payouts forfeit past expiry + SETTLEMENT_WINDOW,
+    // but the reserve always releases and the note always completes
+    // ------------------------------------------------------------------
+
+    function test_Settle_PayoutForfeitedAfterTheClaimWindow() public {
+        uint256 id = _buySpecAndExpire();
+        // Warp well past the window with the feed long stale (stamped at T0, 72h
+        // staleness): an in-window settle would revert StalePrice here. The forfeit
+        // path must not read the feed at all, so the release still goes through.
+        vmWarp(T0 + DUR_7D + 30 days + 1);
+
+        vmExpectEmit(true, false, true, true);
+        emit NoteSettled(id, 0, 0, buyer);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer), 1e24 - 12.5e18, "payout forfeited");
+        assertEq(vault.reserved(), 0, "reserve released even on forfeit");
+        assertEq(vault.totalDeposits(), 1012.5e18, "nothing left the vault");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
+
+        (, , , , , , , , , ProtectionNote.Status status) = note.notes(id);
+        assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "note completes on forfeit");
+        assertEq(note.calculatePayout(id, 60e8), 0, "view agrees the payout is gone");
+    }
+
+    function test_Settle_AtTheClaimWindowBoundary_StillPaysInFull() public {
+        uint256 id = _buySpecAndExpire();
+        vmWarp(T0 + DUR_7D + 30 days); // exactly at the boundary: still collectible
+        feed.setPrice(60e8);
+
+        uint256 buyerBefore = settlement.balanceOf(buyer);
+        note.settle(id);
+
+        assertEq(settlement.balanceOf(buyer), buyerBefore + 100e18, "boundary settle pays in full");
+    }
+
+    function test_CalculatePayout_ZeroAfterTheClaimWindow() public {
+        uint256 id = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
+
+        assertEq(note.calculatePayout(id, 60e8), 100e18, "in term it quotes the formula");
+
+        vmWarp(T0 + DUR_7D + 30 days + 1);
+        assertEq(note.calculatePayout(id, 60e8), 0, "past the window it quotes zero");
+    }
+
+    // ------------------------------------------------------------------
     // views
     // ------------------------------------------------------------------
 
