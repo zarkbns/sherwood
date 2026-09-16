@@ -142,7 +142,34 @@
       "tslaTransferSmokeTest": "0xbc287215922f2194ccdf6797cd9a514468725417851f60a94a3e78a881d7b8d1 — 1 wei TSLA to 0x…dEaD proved the stock token's transfer works before the partial/zero legs depend on it (buyer 15e18 -> 15e18 - 1 wei)",
       "readBack": "nextId 3; deposits 1013500000 = 1000e6 deposit + 3x4.5e6 premiums; reserved 480000000 = 3x160e6; custody 1013500000 == totalDeposits; availableCapacity 330800000 = 0.8x1013.5e6 - 480e6; buyer MockUSDG 1945656250 = 1959156250 - 13.5e6 premiums; all three notes ACTIVE with owner/asset/amount/entry/level/expiry/premium/floor/liability read back identical except expiry (12:34:46 / :49 / :52 WAT on 2026-09-16, three creates 3s apart)"
     },
-    "phase2Plan": "After expiry, at the SAME feed price of 100e8 for all three legs: settle note 1 with the full position still held (expect payout 60e6 = floor 160 - current 100); sell down to exactly 0.5 TSLA and settle note 2 (expect 30e6 = 0.5x160 - 0.5x100, exactly half of leg 1 at the same price); sell every remaining wei and settle note 3 (expect payout 0 with the full 160e6 reserve released — a zero payout caused by OWNERSHIP alone, since the same price paid 60e6 on note 1). Final audit: deposits 923500000, reserved 0, custody 923500000 == deposits, availableCapacity 738800000, buyer 2035656250 = 1945656250 + 60e6 + 30e6 + 0, buyer TSLA 0."
+    "phase2": {
+      "executed": "2026-09-16, settlement txs ~17:30-17:45 WAT, all after the 12:34 expiry",
+      "settlementPrice": "100e8 ($100 — DemoFeed set from $200 and read back before any settle; ONE price for all three legs, so ownership is the only variable)",
+      "txs": {
+        "DemoFeed.set(100e8)": "0x02b8d8b206ac81941698ee93fbdffd6b1ea235e6057274c2a3741dd8f868647e",
+        "settle(1)_full": "0x0a36c8f6f517f1dd4e206c6dfddf4c1345045539dde4d713327b8a8f0fddaf65",
+        "sell_to_0.5_TSLA": "0xf354ad0a11d23976f0aa29ba42373d42fdb96c1ab191a4899ab505acdad95994",
+        "settle(2)_partial": "0x799683762ab20d76920fdf48761c7a690fe056df9fc33e61644a09b68c27d48d",
+        "sell_the_rest": "0xf434ab5c05b1750fcae4aa92c87871170e9e8e8945a63b255b62de418a4cf6f3",
+        "settle(3)_zero": "0xadb2200d60e7c96b8ad917872e2d70078ee950799da53dca20bf78cb1d02b514"
+      },
+      "legs": {
+        "leg1_full": "owner still held ~15 TSLA -> eligible 1e18 -> payout 60000000 (floor 160 - current 100). Events: ERC20 Transfer 60e6 vault->buyer; CapacityReleased(1, 160000000); PayoutExecuted(1, buyer, 60000000); NoteSettled(1, 100e8, 60000000, buyer)",
+        "leg2_partial": "owner held exactly 0.5 TSLA (read back on-chain) -> eligible 0.5e18 -> payout 30000000 (0.5x160 - 0.5x100), EXACTLY HALF leg 1 at the same price. Events mirror leg 1 at 30e6",
+        "leg3_zero": "owner held 0 -> eligible 0 -> payout 0 with the full 160000000 reserve released. Events ONLY CapacityReleased(3, 160000000) + NoteSettled(3, 100e8, 0, buyer) — NO PayoutExecuted and NO ERC20 Transfer"
+      },
+      "finalAudit": {
+        "totalDeposits": "923500000 (1013500000 - 60e6 - 30e6 - 0)",
+        "reserved": "0 — all three liabilities released",
+        "vaultCustody": "923500000 == totalDeposits — fully backed with zero reserve",
+        "availableCapacity": "738800000 (0.8x923.5e6, fully reusable)",
+        "buyerMockUSDG": "2035656250 (1945656250 + 60e6 + 30e6 + 0)",
+        "buyerTSLA": "0",
+        "noteStatuses": "1=SETTLED 2=SETTLED 3=SETTLED",
+        "gasNote": "settle gas 150927 / 150805 / 129940 — leg 3's missing transfer is visible in the gas"
+      },
+      "verdict": "The eligibleAmount settlement basis is proven live on v5: three identical notes settled at one price paid 60/30/0 exactly proportional to the stock the owner still held at each settle moment, with every reserve releasing in full and the vault solvent at every step. Deployed v4 would have paid 60/60/60 — this is behavioral proof that commit 569ef97 changed settlement, not just tests."
+    }
   },
   "config": {
     "bufferBps": 2000,
