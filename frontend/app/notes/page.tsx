@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { useDeployed, useNotes, useAssets, useSettlementReceipts, settlementTokenFor, type NoteView } from "@/lib/protocol";
 import { noteAbi } from "@/lib/abis";
+import { TokenLogo } from "@/components/TokenLogo";
 import { fmtPrice, fmtUsd18, fmtExpiry, fmtCountdown, fmtQty } from "@/lib/format";
 import Link from "next/link";
 
@@ -40,8 +41,8 @@ export default function Notes() {
             Your notes<span className="text-action">.</span>
           </h1>
           <p className="mt-2 text-sm text-mist">
-            Protection positions and their on-chain settlement records — every price and payout is replayable from the
-            chain.
+            Each row is one protection you bought: the floor you set, what it cost, and what it paid. Every price and
+            payout here can be checked on-chain.
           </p>
         </section>
 
@@ -60,8 +61,8 @@ export default function Notes() {
           ) : mine.length === 0 ? (
             <EmptyState
               icon={<IconFile className="h-6 w-6" />}
-              title="No notes yet"
-              body="Buy your first Protection Note: pick an asset you hold, a floor, and a duration. All upside stays yours."
+              title="No protection yet"
+              body="Pick a stock you hold and choose the price you want protected. You keep every gain above your floor."
               actionHref="/protect"
               actionLabel="Buy protection"
             />
@@ -148,9 +149,7 @@ function NoteCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 font-display text-xs font-bold text-fog">
-            {symbol.slice(0, 2)}
-          </span>
+          <TokenLogo symbol={symbol} className="h-9 w-9" />
           <div className="min-w-0">
             <div className="truncate text-sm text-ink">
               <span className="font-display font-bold">
@@ -159,7 +158,7 @@ function NoteCard({
               <span className="tnum ml-2 text-xs text-mist">#{note.id.toString()}</span>
             </div>
             <div className="tnum mt-0.5 truncate text-xs text-mist">
-              {fmtQty(note.amount, decimals)} · entry {fmtPrice(note.entryPrice)} · premium {fmtUsd18(note.premiumUSD18)}
+              {fmtQty(note.amount, decimals)} · bought at {fmtPrice(note.entryPrice)} · cost {fmtUsd18(note.premiumUSD18)}
             </div>
           </div>
         </div>

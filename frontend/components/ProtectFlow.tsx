@@ -109,7 +109,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
     : receipt.isLoading
       ? { kind: "busy", text: "Waiting for confirmation…" }
       : receipt.isSuccess
-        ? { kind: "success", text: "Protection Note created — see Notes" }
+        ? { kind: "success", text: "Protection created — see your notes" }
         : failReason
           ? { kind: "error", text: `Failed: ${failReason}` }
           : null;
@@ -124,7 +124,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
         </button>
       ) : null}
       <button onClick={create} disabled={!canCreate} className="btn-action w-full rounded-2xl px-4 py-3.5 text-sm">
-        {needsApproval ? "Approval required first" : overPosition ? "Exceeds your position" : "Buy Protection Note"}
+        {needsApproval ? "Approve first" : overPosition ? "More than you hold" : "Buy protection"}
       </button>
       <TxStatus state={txState} />
     </div>
@@ -150,7 +150,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
 
         {/* From */}
         <div className="mt-3 rounded-2xl bg-surface-3 p-4">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-mist">From · your position</div>
+          <div className="text-[11px] uppercase tracking-[0.14em] text-mist">From · the stock you hold</div>
           <div className="mt-2 flex items-center justify-between gap-3">
             <input
               value={amount}
@@ -204,7 +204,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-mist">
             <span>{quote ? `expires ${fmtExpiry(quote[2])}` : "pick an amount to quote"}</span>
-            <span className="tnum">{selected ? fmtPrice(selected.price8) : "—"} entry</span>
+            <span className="tnum">{selected ? fmtPrice(selected.price8) : "—"} now</span>
           </div>
         </div>
 
@@ -217,16 +217,16 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
 
         <div className="mt-4 flex items-center justify-between gap-3 text-xs text-mist">
           <span>
-            ⓘ Refundable? No — premiums are earned by the vault once the note exists.
+            ⓘ Paid up front and not refundable — the vault keeps the cost whether or not the price ever drops.
           </span>
           <span className="tnum shrink-0 rounded-xl bg-surface-3 px-3 py-1.5 text-ink">
-            {premiumUSD18 !== undefined ? `${fmtUsd18(premiumUSD18)} fee` : "fee —"}
+            {premiumUSD18 !== undefined ? `${fmtUsd18(premiumUSD18)} cost` : "cost —"}
           </span>
         </div>
 
         {overPosition && selected ? (
           <p className="mt-3 text-xs text-loss">
-            Position guard: you hold {fmtQty(held, selected.decimals, selected.symbol)} — the contract rejects protecting more.
+            You hold {fmtQty(held, selected.decimals, selected.symbol)} — you can&apos;t protect more than you own.
           </p>
         ) : null}
 
@@ -296,10 +296,10 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
           {selected ? (
             <p className={`mt-2 text-xs ${overPosition ? "text-fog" : "text-mist"}`}>
               {held === undefined
-                ? "Connect a wallet to see your position."
+                ? "Connect a wallet to see what you hold."
                 : overPosition
-                  ? `Position guard: you hold ${fmtQty(held, selected.decimals, selected.symbol)} — the contract rejects protecting more.`
-                  : `You hold ${fmtQty(held, selected.decimals, selected.symbol)} — protection never leaves your wallet.`}
+                  ? `You hold ${fmtQty(held, selected.decimals, selected.symbol)} — you can't protect more than you own.`
+                  : `You hold ${fmtQty(held, selected.decimals, selected.symbol)}. The stock stays in your wallet.`}
             </p>
           ) : null}
         </div>
@@ -326,7 +326,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
           {quote ? (
             <>
               <div className="mt-4">
-                <div className="text-xs text-mist">Premium due now</div>
+                <div className="text-xs text-mist">Cost up front</div>
                 <div className="tnum mt-1 font-display text-4xl font-bold leading-none tracking-tight text-ink">
                   {fmtUsd18(premiumUSD18)}
                 </div>
@@ -335,16 +335,16 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
                 </div>
               </div>
               <dl className="mt-6 space-y-3 text-sm">
-                <Row label="Position value" value={fmtUsd18(positionValue)} />
-                <Row label="Entry price (live feed)" value={fmtPrice(selected?.price8)} />
+                <Row label="What you're protecting" value={fmtUsd18(positionValue)} />
+                <Row label="Price now (from the chain)" value={fmtPrice(selected?.price8)} />
                 <Row label="Your floor" value={fmtUsd18(protectedUSD18)} />
-                <Row label="Max payout" value={fmtUsd18(protectedUSD18)} />
+                <Row label="Most you can receive" value={fmtUsd18(protectedUSD18)} />
                 <Row label="Expires" value={fmtExpiry(quote[2])} />
               </dl>
             </>
           ) : (
             <p className="mt-4 text-sm text-mist">
-              Pick an asset and enter an amount — the contract quotes premium, floor, and expiry live.
+              Pick a stock and an amount — the cost, your floor and the expiry all come back from the chain.
             </p>
           )}
 

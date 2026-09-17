@@ -3,23 +3,24 @@ import { Providers } from "./Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SherwoodNotes — Keep the upside. Define the downside.",
-  description: "Programmable downside protection for tokenized stocks on Robinhood Chain.",
+  title: "SherwoodNotes — Keep the upside. Cap your losses.",
+  description:
+    "Put a floor under the stocks you own on Robinhood Chain. Every gain above the floor stays yours; if the price falls through it, the vault pays you the gap.",
   // Resolves the relative OG/icon paths below into absolute URLs for link crawlers.
   metadataBase: new URL("https://sherwoodnotes.vercel.app"),
   openGraph: {
-    title: "SherwoodNotes — Keep the upside. Define the downside.",
+    title: "SherwoodNotes — Keep the upside. Cap your losses.",
     description:
-      "Buy a floor price on a tokenized stock, keep every gain above it, and settle the downside against verified prices.",
+      "Pick a floor price for a stock you hold. Keep everything above it, get paid the gap below it, and settle against prices read from the chain.",
     url: "https://sherwoodnotes.vercel.app",
     siteName: "SherwoodNotes",
     type: "website",
-    images: [{ url: "/og.png", width: 2048, height: 762, alt: "SherwoodNotes — programmable downside protection" }],
+    images: [{ url: "/og.png", width: 2048, height: 762, alt: "SherwoodNotes — protection for the stocks you hold" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "SherwoodNotes — Keep the upside. Define the downside.",
-    description: "Programmable downside protection for tokenized stocks on Robinhood Chain.",
+    title: "SherwoodNotes — Keep the upside. Cap your losses.",
+    description: "Put a floor under the stocks you own on Robinhood Chain.",
     images: ["/og.png"],
   },
   icons: {

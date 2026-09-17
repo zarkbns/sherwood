@@ -73,8 +73,8 @@ export default function Vault() {
             The vault<span className="text-action">.</span>
           </h1>
           <p className="mt-2 text-sm text-mist">
-            Every active note is backed by reserved collateral. The protocol never sells more protection than it can
-            cover.
+            Every active protection is backed by money already set aside. The protocol never sells more protection
+            than it can pay out — capacity is checked before a single premium is taken.
           </p>
         </section>
 
@@ -92,27 +92,27 @@ export default function Vault() {
             <section className="inset-card rise mt-8 rounded-3xl p-6 sm:p-8" style={{ animationDelay: "60ms" }}>
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
-                  <Eyebrow>Capacity utilization</Eyebrow>
+                  <Eyebrow>Vault in use</Eyebrow>
                   <div className="tnum mt-2 font-display text-5xl font-bold leading-none tracking-tight">
                     {(utilization * 100).toFixed(1)}
                     <span className="text-2xl text-mist">%</span>
                   </div>
                   <p className="mt-2 text-xs text-mist">
-                    reserved against deposits · {bufferPct !== null ? `${bufferPct}% buffer` : "buffer —"} held back at
-                    all times
+                    reserved collateral against deposits · {bufferPct !== null ? `${bufferPct}% buffer` : "buffer —"} held
+                    back at all times
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">Deposits</div>
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">In the vault</div>
                     <div className="tnum mt-0.5 font-display text-lg font-bold">{tok(totalDeposits, st)}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">Reserved</div>
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">Locked (reserved)</div>
                     <div className="tnum mt-0.5 font-display text-lg font-bold">{tok(reserved, st)}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">Capacity</div>
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-mist">Free capacity</div>
                     <div className="tnum mt-0.5 font-display text-lg font-bold">{tok(availableCapacity, st)}</div>
                   </div>
                 </div>
@@ -125,10 +125,10 @@ export default function Vault() {
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               {/* Deposit ticket */}
               <div className="inset-card rise rounded-3xl p-6" style={{ animationDelay: "120ms" }}>
-                <Eyebrow>Deposit collateral</Eyebrow>
+                <Eyebrow>Deposit</Eyebrow>
                 <p className="mt-2 text-sm text-fog">
-                  Collateral providers earn premiums. Deposits are held in {st?.symbol ?? "the settlement token"};
-                  owner withdrawals are limited to unencumbered surplus.
+                  Back the protections and earn what buyers pay for them. Your money sits in {st?.symbol ?? "the settlement token"};
+                  only the part that is not already promised to an active note can ever be withdrawn.
                 </p>
                 <input
                   className="tnum mt-4 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none focus:border-action/60"
@@ -166,7 +166,7 @@ export default function Vault() {
                     disabled={!isConnected || amountWei === 0n || needsApproval || isWriting || receipt.isLoading}
                     className="btn-action w-full rounded-2xl px-4 py-3.5 text-sm"
                   >
-                    {needsApproval ? "Approval required first" : "Deposit"}
+                    {needsApproval ? "Approve first" : "Deposit"}
                   </button>
                   <TxStatus state={txState} />
                 </div>

@@ -76,7 +76,7 @@ export function BalanceCard({
                   </div>
 
                   {floor === undefined ? (
-                    <p className="mt-1 text-[11px] text-mist">No active note — no floor set.</p>
+                    <p className="mt-1 text-[11px] text-mist">No protection on this one yet — no floor set.</p>
                   ) : (
                     <>
                       <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
@@ -89,8 +89,8 @@ export function BalanceCard({
                       </div>
                       <p className={`tnum mt-1 text-[11px] ${belowFloor ? "text-pending" : "text-mist"}`}>
                         {belowFloor
-                          ? `Below floor — settlement pays the gap${c.expiry ? ` · expires in ${describeExpiry(c.expiry)}` : ""}`
-                          : `${pct !== undefined ? pct - 100 : 0}% above floor — protection idle${
+                          ? `Under your floor — this one pays out the gap${c.expiry ? ` · expires in ${describeExpiry(c.expiry)}` : ""}`
+                          : `${pct !== undefined ? pct - 100 : 0}% above your floor — nothing to pay yet${
                               c.expiry ? ` · expires in ${describeExpiry(c.expiry)}` : ""
                             }`}
                       </p>

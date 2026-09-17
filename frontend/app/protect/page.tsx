@@ -31,10 +31,11 @@ export default function Protect() {
         <section className="rise">
           <Eyebrow>New protection</Eyebrow>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
-            Define the downside<span className="text-action">.</span>
+            Pick a floor<span className="text-action">.</span>
           </h1>
           <p className="mt-2 text-sm text-mist">
-            Hold it, protect it, keep the upside. Terms are priced live by the contract and never change after creation.
+            Choose a stock you hold and the price you want protected. You keep everything above it, and if the price
+            falls below it the vault pays you the difference. The cost is set on-chain and never changes after you buy.
           </p>
         </section>
 

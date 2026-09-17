@@ -68,12 +68,12 @@ export default function Dashboard() {
   });
 
   const stats = [
-    { label: "Assets registered", value: String(assets.length) },
-    { label: "Active notes", value: String(active.length), tone: active.length > 0 ? ("action" as const) : ("muted" as const) },
-    { label: "Protected floor", value: isConnected ? fmtUsd18Compact(totalProtected) : "—" },
-    { label: "Vault deposits", value: tok(vault.totalDeposits) },
-    { label: "Reserved", value: tok(vault.reserved) },
-    { label: "Utilization", value: `${(utilization * 100).toFixed(1)}%` },
+    { label: "Stocks listed", value: String(assets.length) },
+    { label: "Protection active", value: String(active.length), tone: active.length > 0 ? ("action" as const) : ("muted" as const) },
+    { label: "Your floor", value: isConnected ? fmtUsd18Compact(totalProtected) : "—" },
+    { label: "In the vault", value: tok(vault.totalDeposits) },
+    { label: "Locked for payouts", value: tok(vault.reserved) },
+    { label: "Vault in use", value: `${(utilization * 100).toFixed(1)}%` },
   ];
 
   if (!deployed) {
@@ -166,7 +166,7 @@ export default function Dashboard() {
               <EmptyState
                 icon={<IconFile className="h-6 w-6" />}
                 title="Nothing protected yet"
-                body="Define a floor on a position you hold and keep every dollar of upside. The quote is priced live by the contract."
+                body="Pick a stock you own, choose how much to cover and for how long. You keep every gain above your floor."
                 actionHref="/protect"
                 actionLabel="Buy protection"
               />
@@ -183,7 +183,7 @@ export default function Dashboard() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-display text-sm font-bold tracking-tight">
-                          Note #{n.id.toString()}
+                          Protection #{n.id.toString()}
                         </span>
                         <Pill tone={expired ? "ready" : "neutral"}>
                           {expired ? "settle now" : fmtCountdown(n.expiry)}
@@ -191,12 +191,12 @@ export default function Dashboard() {
                       </div>
                       <div className="tnum mt-1 text-xs text-mist">
                         {fmtQty(n.amount, asset?.decimals ?? 18, asset?.symbol ?? "")} · floor{" "}
-                        {fmtUsd18(n.protectedUSD18)} · entry {fmtPrice(n.entryPrice)}
+                        {fmtUsd18(n.protectedUSD18)} · bought at {fmtPrice(n.entryPrice)}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="tnum text-sm text-ink">{fmtUsd18(n.premiumUSD18)}</div>
-                      <div className="text-xs text-mist">premium paid</div>
+                      <div className="text-xs text-mist">you paid</div>
                     </div>
                   </div>
                 );
@@ -216,14 +216,14 @@ export default function Dashboard() {
           <div className="inset-card rise mt-3 rounded-3xl p-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <div className="text-xs text-mist">Reserved against active notes</div>
+                <div className="text-xs text-mist">Locked for payouts · reserved collateral</div>
                 <div className="tnum mt-1 font-display text-2xl font-bold tracking-tight">
-                  {tok(vault.reserved)} <span className="text-sm font-normal text-mist">of {tok(vault.totalDeposits)}</span>
+                  {tok(vault.reserved)} <span className="text-sm font-normal text-mist">of {tok(vault.totalDeposits)} in the vault</span>
                 </div>
               </div>
               <div className="w-full sm:w-64">
                 <div className="flex items-baseline justify-between text-xs text-mist">
-                  <span>Utilization</span>
+                  <span>Vault in use</span>
                   <span className="tnum">{(utilization * 100).toFixed(1)}%</span>
                 </div>
                 <div className="mt-2">
@@ -235,7 +235,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <p className="mt-2 text-[11px] text-mist">
-                  {isConnected ? `${fmtUsd18Compact(premiumSpent)} premium paid across your notes.` : "Connect to see your premium history."}
+                  {isConnected ? `${fmtUsd18Compact(premiumSpent)} paid in costs across your protections.` : "Connect to see what you've paid in costs."}
                 </p>
               </div>
             </div>
