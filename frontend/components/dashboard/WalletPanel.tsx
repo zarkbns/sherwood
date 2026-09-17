@@ -18,11 +18,15 @@ export function WalletPanel({
   isConnected,
   assets,
   decimalsOf,
+  nativeBalance,
 }: {
   address: string | undefined;
   isConnected: boolean;
   assets: AssetView[];
   decimalsOf: (a: AssetView) => number;
+  /** Native gas balance (ETH). Symbol is not read from the chain: this RPC answers nothing
+   *  for eth_symbol, so the label is supplied rather than rendered blank. */
+  nativeBalance?: { value: bigint; decimals: number };
 }) {
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : null;
 
@@ -49,6 +53,34 @@ export function WalletPanel({
       </div>
 
       <div className="mt-3 flex flex-col">
+        {/* Native gas first, the way a wallet lists it. ETH is not a registered asset and
+            cannot be: the registry takes ERC20 stock tokens, and both the position guard and
+            settlement read balanceOf(), which a native balance does not have. So it shows the
+            balance and says plainly that it is gas and not protectable — never a protect link
+            that would revert. */}
+        {nativeBalance ? (
+          <div className="flex items-center justify-between gap-3 border-b border-line/40 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <TokenLogo symbol="ETH" className="h-8 w-8" />
+              <span className="min-w-0">
+                <span className="block truncate text-sm text-ink">Ether</span>
+                <span className="block truncate text-[11px] text-mist">ETH · gas token</span>
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="text-right">
+                <div className="tnum text-sm text-ink">
+                  {fmtQty(nativeBalance.value, nativeBalance.decimals)}
+                </div>
+                <div className="text-[11px] text-mist">for gas</div>
+              </div>
+              <span className="rounded-full border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-mist">
+                Gas
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         {assets.length === 0 ? (
           <p className="py-6 text-center text-xs text-mist">Nothing registered on this network.</p>
         ) : (

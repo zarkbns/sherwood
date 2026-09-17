@@ -7,6 +7,7 @@ import { Header } from "@/components/Header";
 import { StatStrip, Panel } from "@/components/dashboard/StatStrip";
 import { WalletPanel } from "@/components/dashboard/WalletPanel";
 import { BalanceCard, type CoverageItem } from "@/components/dashboard/BalanceCard";
+import { NetworkPanel } from "@/components/dashboard/NetworkPanel";
 import { ProtectFlow } from "@/components/ProtectFlow";
 import { Eyebrow, EmptyState, Pill, Skeleton, IconShield, IconFile, IconArrow } from "@/components/ui";
 import { useDeployed, useAssets, useNotes, useVaultStats, settlementTokenFor } from "@/lib/protocol";
@@ -24,6 +25,14 @@ export default function Dashboard() {
     address,
     token: st?.address,
     query: { enabled: !!address && !!st?.address },
+  });
+
+  // Native gas balance. Read separately from the settlement token because it is not an ERC20
+  // and never enters the registry — it exists here so a user can see why a transaction can
+  // fail for gas while their stock balances look healthy.
+  const { data: nativeBalance } = useBalance({
+    address,
+    query: { enabled: !!address },
   });
 
   const held = assets.filter((a) => a.balance !== undefined && a.balance > 0n);
@@ -136,6 +145,7 @@ export default function Dashboard() {
               isConnected={isConnected}
               assets={isConnected ? assets : assets.map((a) => ({ ...a, balance: undefined }))}
               decimalsOf={(a) => a.decimals}
+              nativeBalance={nativeBalance ? { value: nativeBalance.value, decimals: nativeBalance.decimals } : undefined}
             />
           </Panel>
         </div>
@@ -233,6 +243,11 @@ export default function Dashboard() {
               All prices read from on-chain feeds; testnet prices are disclosed demo data.
             </p>
           </div>
+        </section>
+
+        {/* Network — which chain this is, and why mainnet ETH will not fund it. */}
+        <section className="mt-10">
+          <NetworkPanel />
         </section>
       </main>
     </>
