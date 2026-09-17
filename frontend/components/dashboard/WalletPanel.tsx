@@ -67,7 +67,7 @@ export function WalletPanel({
                   <span className="min-w-0">
                     <span className="block truncate text-sm text-ink">{a.name ?? a.symbol}</span>
                     <span className="block truncate text-[11px] text-mist">
-                      {a.symbol} · {fmtPrice(a.price8)}
+                      {a.active ? `${a.symbol} · ${fmtPrice(a.price8)}` : `${a.symbol} · coming soon`}
                     </span>
                   </span>
                 </div>
@@ -80,14 +80,23 @@ export function WalletPanel({
                       {fiat !== undefined && balance > 0n ? fmtUsd18(fiat) : "—"}
                     </div>
                   </div>
-                  <Link
-                    href="/protect"
-                    aria-label={`Protect ${a.symbol}`}
-                    title={`Protect ${a.symbol}`}
-                    className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-xs text-mist transition-colors hover:text-action"
-                  >
-                    ↗
-                  </Link>
+                  {/* An asset the registry lists but has closed for new notes cannot be
+                      protected, so the row offers no action — and no price, which would
+                      imply it can be bought at one. */}
+                  {a.active ? (
+                    <Link
+                      href="/protect"
+                      aria-label={`Protect ${a.symbol}`}
+                      title={`Protect ${a.symbol}`}
+                      className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-xs text-mist transition-colors hover:text-action"
+                    >
+                      ↗
+                    </Link>
+                  ) : (
+                    <span className="rounded-full border border-pending/40 px-2 py-0.5 text-[10px] uppercase tracking-wide text-pending">
+                      Soon
+                    </span>
+                  )}
                 </div>
               </div>
             );

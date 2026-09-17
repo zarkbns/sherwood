@@ -171,7 +171,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
                 {assets.map((a) => (
                   <option key={a.token} value={a.token} disabled={!a.active}>
                     {a.symbol}
-                    {a.active ? "" : " (inactive)"}
+                    {a.active ? "" : " (coming soon)"}
                   </option>
                 ))}
               </select>
@@ -261,7 +261,7 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
                   <span className="block font-display text-sm font-bold">{a.symbol}</span>
                 </span>
                 <span className="tnum mt-0.5 block text-xs text-mist">
-                  {disabled ? "inactive" : fmtPrice(a.price8)}
+                  {disabled ? "coming soon" : fmtPrice(a.price8)}
                 </span>
                 {a.balance !== undefined && a.balance > 0n && !disabled ? (
                   <span className="tnum mt-0.5 block text-[10px] text-fog">
