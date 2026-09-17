@@ -156,6 +156,24 @@ body {
   background: color-mix(in srgb, var(--color-rh-green) 30%, transparent);
 }
 
+/* Polka-dot stage — the landing page's floor. Hero and market share one grid so the page
+ * reads as a single room, separated by tone rather than by a hard border. */
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1.5px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+
+/* Scanline poster — one of the landing cards' three backdrops (green glow, scanlines, white). */
+.scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .skeleton {
