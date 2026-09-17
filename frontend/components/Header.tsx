@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
+import { useAccount, useDisconnect, useChainId, useSwitchChain } from "wagmi";
 import { robinhoodTestnet } from "@/lib/chain";
 import { IconShield, IconGauge, IconFile, IconVault, IconArrow } from "@/components/ui";
+import { ConnectModal } from "@/components/ConnectModal";
 
 const links = [
   { href: "/", label: "Dashboard", Icon: IconGauge },
@@ -17,9 +19,8 @@ const CHAIN_NAMES: Record<number, string> = {
   [robinhoodTestnet.id]: "Robinhood Chain Testnet",
 };
 
-function ConnectButton() {
+function ConnectButton({ onConnect }: { onConnect: () => void }) {
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -49,21 +50,20 @@ function ConnectButton() {
     );
   }
 
-  const injectedConnector = connectors.find((c) => c.type === "injected") ?? connectors[0];
   return (
     <button
-      onClick={() => injectedConnector && connect({ connector: injectedConnector })}
-      disabled={isPending || !injectedConnector}
+      onClick={onConnect}
       className="btn-action inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm"
     >
-      {isPending ? "Connecting…" : "Connect wallet"}
-      {!isPending ? <IconArrow className="h-4 w-4" /> : null}
+      Connect wallet
+      <IconArrow className="h-4 w-4" />
     </button>
   );
 }
 
 export function Header() {
   const pathname = usePathname();
+  const [connectOpen, setConnectOpen] = useState(false);
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
@@ -91,9 +91,11 @@ export function Header() {
             ))}
           </nav>
 
-          <ConnectButton />
+          <ConnectButton onConnect={() => setConnectOpen(true)} />
         </div>
       </header>
+
+      <ConnectModal open={connectOpen} onClose={() => setConnectOpen(false)} />
 
       {/* Mobile tab bar — peers, not a drawer. Fixed, blurred, safe-area aware. */}
       <nav
