@@ -263,7 +263,7 @@ build needs no secrets and no network beyond `npm ci` from the committed lockfil
    `outputFileTracingRoot` in `next.config.mjs` pins the workspace root there so nothing above
    the checkout can pull the build graph sideways)
 2. Deploy — no env vars required
-3. Optional env vars: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (unlocks mobile-wallet QR via WalletConnect; get one free at cloud.walletconnect.com — with it unset the connector is simply not registered, which is the intended degradation), `NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET` (a rate-limit-free RPC instead of the public one)
+3. Optional env vars: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (unlocks mobile-wallet connect via WalletConnect; get one free at cloud.walletconnect.com — with it unset the connector is simply not registered, which is the intended degradation. In the WalletConnect dashboard allowlist `http://localhost:3000` for local dev and your deployed domain, or leave allowed domains empty to permit all), `NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET` (a rate-limit-free RPC instead of the public one)
 4. To buy protection on the deployed app you need the testnet settlement token: MockUSDG
    (`0x8c4aa106a0A0d9ECAeD5C87e1AE766aa8Efbf006`), 1,000 per address per 24h — claim it with
    `forge script script/Faucet.s.sol --rpc-url $RPC_URL --broadcast`, or from the site faucet

@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useConnect } from "wagmi";
-import { IconAlert, IconCheck, IconShield, IconWallet } from "@/components/ui";
+import { toHex } from "viem";
+import { IconAlert, IconCheck, IconShield } from "@/components/ui";
+import { WalletIcon } from "@/components/WalletIcon";
 import { injectedWallet } from "@/lib/wallets";
+import { robinhoodTestnet } from "@/lib/chain";
 
 /**
  * The connect surface. Nothing in here connects on the visitor's behalf: the session starts
@@ -12,6 +15,13 @@ import { injectedWallet } from "@/lib/wallets";
  * extension has already granted this site permission — that grant lives in the wallet, not
  * in the dapp, and no dapp code can force the approval dialog back up. Revoking it happens
  * inside the wallet.
+ *
+ * Connecting is chain-strict: every connect request names Robinhood Chain testnet, so a
+ * wallet sitting on any other network is switched as part of connecting (wagmi falls back
+ * to adding the chain to the wallet when it is not there yet). The app never lands on
+ * whatever chain the wallet happened to have open. The button below the rows is the
+ * faucet-style manual add — the same wallet_addEthereumChain call the chain's own site
+ * makes — for people who like the network in their wallet before they connect.
  */
 
 type Row = {
@@ -28,6 +38,42 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
   // Which row was clicked. This useConnect exposes no pending-connector id (checked), so
   // the busy state is tracked locally — otherwise isPending would light every row at once.
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  // wallet_addEthereumChain, faucet-style: puts the testnet in the wallet with no
+  // connection at all. Only meaningful for injected providers; WalletConnect wallets
+  // add the chain from inside their own app when the session requests it.
+  const [hasInjected, setHasInjected] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addNote, setAddNote] = useState<string | null>(null);
+  useEffect(() => {
+    setHasInjected(Boolean(window.ethereum ?? window.okxWallet));
+  }, []);
+
+  async function addTestnetToWallet() {
+    const provider = window.ethereum ?? window.okxWallet;
+    if (!provider) return;
+    setAddBusy(true);
+    setAddNote(null);
+    try {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: toHex(robinhoodTestnet.id),
+            chainName: robinhoodTestnet.name,
+            nativeCurrency: robinhoodTestnet.nativeCurrency,
+            rpcUrls: robinhoodTestnet.rpcUrls.default.http,
+            blockExplorerUrls: [robinhoodTestnet.blockExplorers.default.url],
+          },
+        ],
+      });
+      setAddNote("Robinhood Chain testnet added to your wallet.");
+    } catch {
+      setAddNote("Not added — the request was closed or rejected in the wallet.");
+    } finally {
+      setAddBusy(false);
+    }
+  }
 
   const rows = useMemo<Row[]>(() => {
     const detected = injectedWallet();
@@ -104,8 +150,9 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
             Connect a wallet
           </h2>
           <p className="mt-1 text-center text-xs leading-relaxed text-mist">
-            Protection is bought and settled on-chain. Pick a wallet to continue — Sherwood
-            never moves funds without your signature.
+            Protection is bought and settled on-chain. Pick a wallet to continue — connecting
+            points it at Robinhood Chain testnet, never at a network it happens to be on.
+            Sherwood never moves funds without your signature.
           </p>
         </div>
 
@@ -119,13 +166,17 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
                 disabled={isPending}
                 onClick={() => {
                   setPendingKey(row.key);
-                  connect({ connector: connectors[row.index] });
+                  connect({ connector: connectors[row.index], chainId: robinhoodTestnet.id });
                 }}
                 className="flex min-h-[44px] w-full items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 text-left transition-colors duration-150 hover:border-action focus-visible:border-action disabled:opacity-50"
               >
-                <span className="text-mist">
-                  {busy ? <IconCheck className="h-5 w-5 text-action" /> : <IconWallet className="h-5 w-5" />}
-                </span>
+                {busy ? (
+                  <span className="text-mist">
+                    <IconCheck className="h-5 w-5 text-action" />
+                  </span>
+                ) : (
+                  <WalletIcon seed={row.key} className="h-9 w-9 rounded-lg" />
+                )}
                 <span className="flex-1">
                   <span className="block text-sm text-ink">{row.name}</span>
                   <span className="block text-[11px] text-mist">{row.blurb}</span>
@@ -135,6 +186,20 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
             );
           })}
         </div>
+
+        {hasInjected ? (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={addTestnetToWallet}
+              disabled={addBusy}
+              className="btn-ghost w-full rounded-xl px-4 py-2.5 text-xs"
+            >
+              {addBusy ? "Opening wallet…" : "Add Robinhood Chain testnet to wallet"}
+            </button>
+            {addNote ? <p className="mt-2 text-center text-[11px] text-mist">{addNote}</p> : null}
+          </div>
+        ) : null}
 
         {error ? (
           <p className="mt-4 flex items-start gap-2 text-xs text-loss">

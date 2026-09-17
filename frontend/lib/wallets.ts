@@ -17,11 +17,16 @@ export type DetectedWallet = {
   blurb: string;
 };
 
-type ProviderWithFlags = {
+type ProviderWithFlags = Eip1193Provider & {
   isOkxWallet?: boolean;
   okxWallet?: unknown;
   isMetaMask?: boolean;
   coinbaseWalletExtension?: unknown;
+};
+
+/** The EIP-1193 surface every provider above speaks, whether injected or in-app. */
+export type Eip1193Provider = {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 };
 
 declare global {
@@ -41,7 +46,8 @@ export function injectedWallet(): DetectedWallet | null {
   const provider = window.ethereum as ProviderWithFlags | undefined;
   if (!provider && !window.okxWallet) return null;
 
-  const flags: ProviderWithFlags = provider ?? {};
+  // The empty fallback is only read for flags; request is never called on it here.
+  const flags = provider ?? ({} as ProviderWithFlags);
   if (flags.isOkxWallet || window.okxWallet) {
     return { id: "okx", name: "OKX Wallet", blurb: "DEX extension or in-app browser" };
   }

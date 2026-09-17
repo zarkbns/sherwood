@@ -12,6 +12,8 @@
     "node": ">=18.18"
   },
   "dependencies": {
+    "@dicebear/collection": "9.4.2",
+    "@dicebear/core": "9.4.3",
     "@tailwindcss/postcss": "4.1.13",
     "@tanstack/react-query": "5.90.2",
     "next": "15.5.24",

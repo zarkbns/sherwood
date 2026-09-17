@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { TokenLogo } from "@/components/TokenLogo";
+import { WalletIcon } from "@/components/WalletIcon";
 import { fmtQty, fmtUsd18, fmtPrice } from "@/lib/format";
 import type { AssetView } from "@/lib/protocol";
 
@@ -46,7 +47,7 @@ export function WalletPanel({
       {/* Address chip — copy/explorer live in the header menu, not duplicated here. */}
       <div className="flex items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3">
         <span className="flex items-center gap-2">
-          <span className="h-6 w-6 shrink-0 rounded-full bg-action/25 ring-1 ring-action/40" aria-hidden />
+          <WalletIcon seed={address} className="h-6 w-6 rounded-full" />
           <span className="tnum text-sm text-ink">{short}</span>
         </span>
         <span className="text-xs text-mist">connected</span>
