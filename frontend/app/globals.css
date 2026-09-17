@@ -2,9 +2,9 @@
 
 :root {
   /* Robinhood-led palette: black carries the surface, white carries the type, and one
-   * signature green carries the action. --color-rh-green is the single value to tune if
-   * the exact brand green differs; every green in this file derives from it. */
-  --color-rh-green: #00c805;
+   * signature green carries the action. --color-rh-green is the single value every green
+   * in this file derives from, so the brand accent is a one-line change. */
+  --color-rh-green: #c0ff00;
   --color-black-canvas: #000000;
   --color-deep-surface: #0a0a0a;
   --color-indigo-surface: #121212;

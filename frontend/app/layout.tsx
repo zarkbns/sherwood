@@ -22,6 +22,10 @@ export const metadata: Metadata = {
     description: "Programmable downside protection for tokenized stocks on Robinhood Chain.",
     images: ["/og.png"],
   },
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useDisconnect, useChainId, useSwitchChain } from "wagmi";
@@ -69,9 +70,14 @@ export function Header() {
       <header className="sticky top-0 z-20 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-3.5 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-2 text-action">
-              <IconShield className="h-4.5 w-4.5" />
-            </span>
+            <Image
+              src="/logo.png"
+              alt="Sherwood"
+              width={64}
+              height={64}
+              priority
+              className="h-8 w-8 rounded-xl object-contain"
+            />
             <span className="font-display text-lg font-bold tracking-tight">
               Sherwood<span className="text-action">.</span>
             </span>
