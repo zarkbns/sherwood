@@ -1,19 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --color-midnight-canvas: #000814;
-  --color-deep-surface: #010d1e;
-  --color-indigo-surface: #001533;
-  --color-cobalt-surface: #00215e;
+  /* Robinhood-led palette: black carries the surface, white carries the type, and one
+   * signature green carries the action. --color-rh-green is the single value to tune if
+   * the exact brand green differs; every green in this file derives from it. */
+  --color-rh-green: #00c805;
+  --color-black-canvas: #000000;
+  --color-deep-surface: #0a0a0a;
+  --color-indigo-surface: #121212;
+  --color-cobalt-surface: #1a1a1a;
   --color-paper-white: #ffffff;
-  --color-fog: #ccced0;
-  --color-mist: #999ca1;
-  --color-steel-border: #11263b;
-  --color-signal-blue: #1c6cff;
+  --color-fog: #e6e6e6;
+  --color-mist: #9a9a9a;
+  --color-steel-border: #262626;
+  --color-loss: #ff4d4d;
+  --color-pending: #ffaa00;
 }
 
 @theme inline {
-  --color-canvas: var(--color-midnight-canvas);
+  --color-canvas: var(--color-black-canvas);
   --color-surface: var(--color-deep-surface);
   --color-surface-2: var(--color-indigo-surface);
   --color-surface-3: var(--color-cobalt-surface);
@@ -21,62 +26,69 @@
   --color-fog: var(--color-fog);
   --color-mist: var(--color-mist);
   --color-line: var(--color-steel-border);
-  --color-action: var(--color-signal-blue);
-  --font-display: "Space Grotesk", sans-serif;
+  --color-action: var(--color-rh-green);
+  --color-loss: var(--color-loss);
+  --color-pending: var(--color-pending);
+  --font-display: "Inter", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 /*
  * Shape lock (stated rule, no exceptions):
  *   cards 24 (rounded-3xl) · inner panels 16-20 (rounded-2xl) · buttons 16
  *   (rounded-2xl) · inputs 12 (rounded-xl) · pills 9999 (rounded-full)
- * Accent lock: #1c6cff is the only chromatic voice; neutrals carry the app.
+ * Accent lock: the Robinhood green is the only chromatic voice; black and white
+ *   carry the app. Red and amber are reserved for loss and pending — never decoration.
+ * Type: Inter for UI and headings; JetBrains Mono for anything that counts.
  */
 
 html {
-  scrollbar-color: var(--color-steel-border) var(--color-midnight-canvas);
+  scrollbar-color: var(--color-steel-border) var(--color-black-canvas);
 }
 
 body {
-  background: var(--color-midnight-canvas);
+  background: var(--color-black-canvas);
   color: var(--color-paper-white);
-  font-weight: 100;
+  font-weight: 400;
   font-family: var(--font-body), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Every figure that counts, times, or prices — digits aligned like a terminal. */
+/* Every figure that counts, times, or prices — mono, digits aligned like a terminal. */
 .tnum {
+  font-family: var(--font-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .inset-card {
   background: var(--color-deep-surface);
-  border: 1px solid color-mix(in srgb, var(--color-steel-border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-steel-border) 80%, transparent);
   box-shadow:
-    inset 4px 4px 8px 0 rgba(255, 255, 255, 0.04),
-    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.1),
-    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.5),
-    inset 1px 1px 1px -0.5px rgba(255, 255, 255, 0.25);
+    inset 4px 4px 8px 0 rgba(255, 255, 255, 0.03),
+    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.07),
+    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.6),
+    inset 1px 1px 1px -0.5px rgba(255, 255, 255, 0.18);
 }
 
 /* Pressed treatment — the surface sinks, it does not lift. */
 .inset-card--press:active {
   box-shadow:
-    inset 0 0 0 1px rgba(28, 108, 255, 0.35),
-    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.2),
-    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.08);
+    inset 0 0 0 1px color-mix(in srgb, var(--color-rh-green) 35%, transparent),
+    inset -4px -4px 16px -4px rgba(0, 0, 0, 0.25),
+    inset 4px 4px 16px -4px rgba(255, 255, 255, 0.06);
 }
 
 .btn-action {
-  background: var(--color-signal-blue);
-  color: #fff;
-  font-weight: 400;
+  background: var(--color-rh-green);
+  color: #000000;
+  font-weight: 600;
   transition: background 150ms ease, transform 120ms ease, opacity 150ms ease;
 }
 .btn-action:hover {
-  background: #3d80ff;
+  background: color-mix(in srgb, var(--color-rh-green) 86%, #ffffff);
 }
 .btn-action:active {
   transform: scale(0.98);
@@ -136,12 +148,12 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-signal-blue);
+  outline: 2px solid var(--color-rh-green);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: rgba(28, 108, 255, 0.35);
+  background: color-mix(in srgb, var(--color-rh-green) 30%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

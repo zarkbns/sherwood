@@ -245,9 +245,9 @@ export function TxStatus({ state }: { state: TxFail | null }) {
     state.kind === "success" ? (
       <IconCheck className="h-4 w-4 text-action" />
     ) : state.kind === "error" ? (
-      <IconAlert className="h-4 w-4 text-fog" />
+      <IconAlert className="h-4 w-4 text-loss" />
     ) : (
-      <IconClock className="h-4 w-4 text-mist" />
+      <IconClock className="h-4 w-4 text-pending" />
     );
   return (
     <p className="rise mt-3 flex items-center justify-center gap-2 text-sm text-fog">
