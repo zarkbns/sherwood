@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useChainId, usePublicClient, useReadContracts } from "wagmi";
-import { Address, formatUnits, parseUnits } from "viem";
+import { Address, formatUnits, parseUnits, zeroAddress } from "viem";
 import { getLogs } from "viem/actions";
 import { addressesFor, SETTLEMENT_TOKEN, ProtocolAddresses } from "./addresses";
 import { noteAbi, noteSettledEvent, vaultAbi, registryAbi, aggregatorAbi, erc20Abi } from "./abis";
@@ -60,15 +60,27 @@ function noteRef(deployed: ProtocolAddresses | null) {
 export type AssetView = {
   token: Address;
   symbol: string;
+  /** ERC20 `name()` — undefined when the token does not expose it. */
+  name: string | undefined;
   feed: Address;
   active: boolean;
+  /** Per-asset staleness bound from the registry, in seconds. */
+  maxStaleness: bigint;
   price8: bigint | undefined;
   priceUpdatedAt: bigint | undefined;
+  /** undefined = not connected or the read failed; distinct from a genuine 0. */
   balance: bigint | undefined;
+  /** Falls back to 18 (the protocol's only supported stock scale) if `decimals()` fails. */
   decimals: number;
 };
 
-/** Registered assets with live Chainlink price and the connected user's balance. */
+/**
+ * Every asset the registry lists, with its live Chainlink price, staleness bound and the
+ * connected holder's balance. Reads are allowFailure by design: one misbehaving token
+ * (missing `name`, a reverted `balanceOf`) must degrade that one row, not blank the whole
+ * list — a batch that throws on first failure turns a single bad registration into an app
+ * that looks empty.
+ */
 export function useAssets(): { assets: AssetView[]; isLoading: boolean } {
   const { deployed } = useDeployed();
   const { address } = useAccount();
@@ -79,38 +91,45 @@ export function useAssets(): { assets: AssetView[]; isLoading: boolean } {
   });
 
   const tokens: Address[] = (tokenList?.[0] as Address[]) ?? [];
+  const PER_TOKEN = 4;
   const meta = useReadContracts({
-    allowFailure: false,
+    allowFailure: true,
     query: { enabled: tokens.length > 0 },
     contracts: tokens.flatMap((t) => [
       { address: deployed?.registry, abi: registryAbi, functionName: "getAsset", args: [t] } as const,
-      { address: t, abi: erc20Abi, functionName: "balanceOf", args: [address ?? "0x0"] } as const,
+      { address: t, abi: erc20Abi, functionName: "balanceOf", args: [address ?? zeroAddress] } as const,
       { address: t, abi: erc20Abi, functionName: "decimals" } as const,
+      { address: t, abi: erc20Abi, functionName: "name" } as const,
     ]),
   });
 
   const assets: AssetView[] = useMemo(() => {
     if (!tokens.length || !meta.data) return [];
-    return tokens.map((token, i) => {
-      const asset = meta.data[i * 3] as unknown as readonly [string, Address, bigint, boolean, boolean];
-      const balance = meta.data[i * 3 + 1] as bigint;
-      const decimals = meta.data[i * 3 + 2] as number;
-      return {
+    const rows: AssetView[] = [];
+    tokens.forEach((token, i) => {
+      const [assetRes, balanceRes, decimalsRes, nameRes] = meta.data!.slice(i * PER_TOKEN, (i + 1) * PER_TOKEN);
+      // No registry entry means the row has nothing honest to display; drop it.
+      if (!assetRes || assetRes.status === "failure") return;
+      const asset = assetRes.result as unknown as readonly [string, Address, bigint, boolean, boolean];
+      rows.push({
         token,
         symbol: asset[0],
+        name: nameRes?.status === "success" ? (nameRes.result as string) : undefined,
         feed: asset[1],
         active: asset[3],
+        maxStaleness: asset[2],
         price8: undefined,
         priceUpdatedAt: undefined,
-        balance: address ? balance : undefined,
-        decimals,
-      };
+        balance: address && balanceRes?.status === "success" ? (balanceRes.result as bigint) : undefined,
+        decimals: decimalsRes?.status === "success" ? Number(decimalsRes.result) : 18,
+      });
     });
+    return rows;
   }, [tokens, meta.data, address]);
 
   // Prices read per-feed (Chainlink only, per spec) in a second batch.
   const prices = useReadContracts({
-    allowFailure: false,
+    allowFailure: true,
     query: { enabled: assets.length > 0 },
     contracts: assets.map((a) => ({ address: a.feed, abi: aggregatorAbi, functionName: "latestRoundData" })),
   });
@@ -118,9 +137,8 @@ export function useAssets(): { assets: AssetView[]; isLoading: boolean } {
   const withPrices = useMemo(
     () =>
       assets.map((a, i) => {
-        const round = prices.data?.[i] as
-          | readonly [bigint, bigint, bigint, bigint, bigint]
-          | undefined;
+        const roundRes = prices.data?.[i];
+        const round = roundRes?.status === "success" ? (roundRes.result as readonly [bigint, bigint, bigint, bigint, bigint]) : undefined;
         return { ...a, price8: round ? round[1] : undefined, priceUpdatedAt: round ? round[3] : undefined };
       }),
     [assets, prices.data]

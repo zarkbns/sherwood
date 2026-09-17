@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import { useDeployed, useAssets, useNotes, useVaultStats, settlementTokenFor } from "@/lib/protocol";
 import { fmtUsd18, fmtUsd18Compact, fmtQty, fmtPrice, fmtCountdown, isExpired } from "@/lib/format";
+import { TokenLogo } from "@/components/TokenLogo";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
@@ -33,6 +34,12 @@ export default function Dashboard() {
   });
 
   const held = assets.filter((a) => a.balance !== undefined && a.balance > 0n);
+  // Everything the registry lists, holdings first. A zero balance is information, not
+  // noise: filtering to funded positions only made a four-asset app look empty for a
+  // wallet that simply had not been funded yet.
+  const listed = [...assets].sort(
+    (a, b) => Number((b.balance ?? 0n) > 0n) - Number((a.balance ?? 0n) > 0n)
+  );
   const positionValue = held.reduce((sum, a) => sum + ((a.balance! * (a.price8 ?? 0n)) / 10n ** 8n), 0n);
 
   const mine = notes.filter((n) => address && n.owner.toLowerCase() === address.toLowerCase());
@@ -100,11 +107,9 @@ export default function Dashboard() {
             <section className="mt-12">
               <div className="flex items-baseline justify-between">
                 <Eyebrow>Your holdings</Eyebrow>
-                {isConnected && held.length > 0 ? (
-                  <Link href="/protect" className="inline-flex items-center gap-1 text-xs text-action hover:underline">
-                    Protect a position <IconArrow className="h-3.5 w-3.5" />
-                  </Link>
-                ) : null}
+                <Link href="/protect" className="inline-flex items-center gap-1 text-xs text-action hover:underline">
+                  Protect a position <IconArrow className="h-3.5 w-3.5" />
+                </Link>
               </div>
               <div className="mt-3 space-y-2">
                 {loadingAssets ? (
@@ -112,38 +117,46 @@ export default function Dashboard() {
                     <SkeletonRow />
                     <SkeletonRow />
                   </>
-                ) : held.length === 0 ? (
+                ) : listed.length === 0 ? (
                   <EmptyState
                     icon={<IconShield className="h-6 w-6" />}
-                    title="No stock positions yet"
-                    body="Grab testnet shares from the Robinhood Chain testnet faucet, then come back — protection requires holding the stock you insure."
+                    title="Nothing registered on this network"
+                    body="Sherwood covers whatever the asset registry lists. No assets are registered on this chain yet."
                     actionHref="/protect"
                     actionLabel="See what Sherwood covers"
                   />
                 ) : (
-                  held.map((a, i) => (
-                    <div
-                      key={a.token}
-                      className="inset-card inset-card--press rise flex items-center justify-between gap-4 rounded-2xl px-4 py-3.5"
-                      style={{ animationDelay: `${i * 50}ms` }}
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 font-display text-xs font-bold text-fog">
-                          {a.symbol.slice(0, 2)}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-ink">{a.symbol}</span>
-                          <span className="tnum block text-xs text-mist">{fmtQty(a.balance, a.decimals)} held</span>
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <div className="tnum text-sm text-ink">
-                          {a.price8 !== undefined ? fmtUsd18((a.balance! * a.price8) / 10n ** 8n) : "—"}
+                  listed.map((a, i) => {
+                    const hasBalance = a.balance !== undefined && a.balance > 0n;
+                    return (
+                      <div
+                        key={a.token}
+                        className="inset-card inset-card--press rise flex items-center justify-between gap-4 rounded-2xl px-4 py-3.5"
+                        style={{ animationDelay: `${i * 50}ms` }}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <TokenLogo symbol={a.symbol} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-ink">{a.name ?? a.symbol}</span>
+                            <span className="tnum block text-xs text-mist">
+                              {a.name ? `${a.symbol} · ` : ""}
+                              {a.balance === undefined
+                                ? "Connect to see balance"
+                                : `${fmtQty(a.balance, a.decimals)} held`}
+                            </span>
+                          </span>
                         </div>
-                        <div className="tnum text-xs text-mist">{fmtPrice(a.price8)}</div>
+                        <div className="text-right">
+                          <div className={`tnum text-sm ${hasBalance ? "text-ink" : "text-mist"}`}>
+                            {hasBalance && a.price8 !== undefined
+                              ? fmtUsd18((a.balance! * a.price8) / 10n ** 8n)
+                              : "—"}
+                          </div>
+                          <div className="tnum text-xs text-mist">{fmtPrice(a.price8)}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>

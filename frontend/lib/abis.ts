@@ -235,6 +235,13 @@ export const erc20Abi = [
     outputs: [{ name: "", type: "string" }],
   },
   {
+    name: "name",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
     name: "approve",
     type: "function",
     stateMutability: "nonpayable",
