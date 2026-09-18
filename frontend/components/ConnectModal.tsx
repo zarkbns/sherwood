@@ -75,6 +75,23 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
     }
   }
 
+  // Official marks for the wallets people actually use, served from /public so nothing
+  // depends on a third-party CDN at render time. Rows without an official mark — the
+  // generic browser wallet and the WalletConnect protocol row — keep the generated
+  // identity (lib/walletIcons); the generated mark never pretends to be a brand.
+  const logoFor = (row: Row): string | null => {
+    if (row.key === "injected") {
+      const n = row.name.toLowerCase();
+      if (n.includes("okx")) return "/wallets/okx.png";
+      if (n.includes("metamask")) return "/wallets/metamask.png";
+      if (n.includes("coinbase")) return "/wallets/coinbase.png";
+      return null;
+    }
+    if (row.key === "metamask") return "/wallets/metamask.png";
+    if (row.key === "coinbase") return "/wallets/coinbase.png";
+    return null;
+  };
+
   const rows = useMemo<Row[]>(() => {
     const detected = injectedWallet();
     const list: Row[] = [];
@@ -174,6 +191,8 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
                   <span className="text-mist">
                     <IconCheck className="h-5 w-5 text-action" />
                   </span>
+                ) : logoFor(row) ? (
+                  <img src={logoFor(row) ?? ""} alt="" aria-hidden className="h-9 w-9 shrink-0 rounded-lg object-contain" />
                 ) : (
                   <WalletIcon seed={row.key} className="h-9 w-9 rounded-lg" />
                 )}
