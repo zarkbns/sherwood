@@ -40,19 +40,47 @@ contract DeployConfig {
     // Spec §2: 20% unencumbered reserve, owner-adjustable up to 5000 bps.
     uint256 public constant DEFAULT_BUFFER_BPS = 2000;
 
+    /// @notice Sherwood's share of each premium; the remaining 90% accrues to the
+    ///         vault's backers pro rata. Owner-adjustable up to MAX_PROTOCOL_FEE_BPS
+    ///         (2500) — "most of the premiums to the people who back them" is the
+    ///         product promise, so the ceiling is a quarter, never a majority.
+    uint256 public constant DEFAULT_PROTOCOL_FEE_BPS = 1000;
+
+    /// @notice Concentration bound: the active liability of any ONE stock may not
+    ///         exceed this share of the vault's deposits. Self-scaling with the money
+    ///         actually backing protection, fixed at deployment.
+    uint256 public constant DEFAULT_MAX_ASSET_EXPOSURE_BPS = 3000;
+
     struct ChainConfig {
         address settlementToken; // address(0) -> chain has no default, SETTLEMENT_TOKEN is required
         uint256 bufferBps;
+        uint256 protocolFeeBps;
+        uint256 maxAssetExposureBps;
     }
 
     function get(uint256 chainId) public pure returns (ChainConfig memory) {
         if (chainId == ROBINHOOD_MAINNET_CHAIN_ID) {
-            return ChainConfig({settlementToken: ROBINHOOD_MAINNET_USDG, bufferBps: DEFAULT_BUFFER_BPS});
+            return ChainConfig({
+                settlementToken: ROBINHOOD_MAINNET_USDG,
+                bufferBps: DEFAULT_BUFFER_BPS,
+                protocolFeeBps: DEFAULT_PROTOCOL_FEE_BPS,
+                maxAssetExposureBps: DEFAULT_MAX_ASSET_EXPOSURE_BPS
+            });
         }
         if (chainId == ROBINHOOD_TESTNET_CHAIN_ID) {
-            return ChainConfig({settlementToken: ROBINHOOD_TESTNET_USDG, bufferBps: DEFAULT_BUFFER_BPS});
+            return ChainConfig({
+                settlementToken: ROBINHOOD_TESTNET_USDG,
+                bufferBps: DEFAULT_BUFFER_BPS,
+                protocolFeeBps: DEFAULT_PROTOCOL_FEE_BPS,
+                maxAssetExposureBps: DEFAULT_MAX_ASSET_EXPOSURE_BPS
+            });
         }
-        return ChainConfig({settlementToken: address(0), bufferBps: DEFAULT_BUFFER_BPS});
+        return ChainConfig({
+            settlementToken: address(0),
+            bufferBps: DEFAULT_BUFFER_BPS,
+            protocolFeeBps: DEFAULT_PROTOCOL_FEE_BPS,
+            maxAssetExposureBps: DEFAULT_MAX_ASSET_EXPOSURE_BPS
+        });
     }
 
     /// @notice Settlement token for a chain: the `SETTLEMENT_TOKEN` override when one

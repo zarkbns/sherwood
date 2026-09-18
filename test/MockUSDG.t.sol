@@ -149,8 +149,8 @@ contract MockUSDGSettlementTest is TestBase {
         // Testnet 46630 publishes no L2 sequencer uptime feed, so the oracle runs with
         // the check off and the per-asset staleness guard alone.
         oracle = new ProtectionOracle(IAggregatorV3(address(0)), 0);
-        vault = new SherwoodVault(IERC20(address(token)), 2000);
-        note = new ProtectionNote(registry, oracle, vault);
+        vault = new SherwoodVault(IERC20(address(token)), 2000, 1000, address(this));
+        note = new ProtectionNote(registry, oracle, vault, 10_000);
         vault.setNoteContract(address(note));
 
         feed = new MockAggregator(8);
@@ -199,7 +199,7 @@ contract MockUSDGSettlementTest is TestBase {
         // Premium collected and collateral reserved atomically, in 6-decimal units.
         assertEq(buyerBefore - token.balanceOf(buyer), PREMIUM_0_5625, "premium debited");
         assertEq(vault.reserved(), FLOOR_20, "liability reserved");
-        assertEq(vault.totalDeposits(), 500e6 + PREMIUM_0_5625, "premium joins deposits");
+        assertEq(vault.totalDeposits(), 500e6 + (PREMIUM_0_5625 * 9) / 10, "backer premium joins deposits");
         assertEq(token.balanceOf(address(vault)), 500e6 + PREMIUM_0_5625, "invariant 5: reserved collateral is held");
         assertGe(token.balanceOf(address(vault)), vault.reserved(), "invariant 5: vault never short of liability");
 
@@ -210,7 +210,7 @@ contract MockUSDGSettlementTest is TestBase {
 
         assertEq(token.balanceOf(buyer), buyerBefore - PREMIUM_0_5625 + PAYOUT_10, "payout max(0, floor - current)");
         assertEq(vault.reserved(), 0, "liability released");
-        assertEq(vault.totalDeposits(), 500e6 + PREMIUM_0_5625 - PAYOUT_10, "payout leaves deposits");
+        assertEq(vault.totalDeposits(), 500e6 + (PREMIUM_0_5625 * 9) / 10 - PAYOUT_10, "payout leaves deposits");
         assertEq(token.balanceOf(address(vault)), 500e6 + PREMIUM_0_5625 - PAYOUT_10, "custody matches accounting");
     }
 
@@ -229,7 +229,7 @@ contract MockUSDGSettlementTest is TestBase {
 
         assertEq(token.balanceOf(buyer), buyerBefore - PREMIUM_0_5625, "no payout above the floor");
         assertEq(vault.reserved(), 0, "liability released");
-        assertEq(vault.totalDeposits(), 500e6 + PREMIUM_0_5625, "premium retained");
+        assertEq(vault.totalDeposits(), 500e6 + (PREMIUM_0_5625 * 9) / 10, "backer premium retained");
     }
 
     function test_Capacity_CannotOverReserveBeyondOneClaimOfCollateral() public {

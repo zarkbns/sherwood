@@ -111,7 +111,16 @@ Example:
 
 This guarantee is checked at creation time, before your premium is collected. If anything in the creation flow reverts, nothing is collected.
 
-The buffer is part of the guarantee, not a target the owner can quietly spend: `withdrawSurplus` is capped at free capacity, so an owner withdrawal can never leave reserved collateral above the usable line, and `setBufferBps` refuses a raise that would strand collateral already reserved under a smaller buffer. Emptying the vault is an explicit act — settle the notes, clear the buffer, withdraw.
+### Backing the Vault
+
+Anyone can deposit USDG and back the protection pool. Backer claims are tracked in shares: your share of the vault rises with every premium collected (90% of each premium flows to backers pro rata; Sherwood keeps 10%, hard-capped at 25% and configurable down to zero) and falls with every payout. Deposits and withdrawals are open to anyone — but the withdrawal gate is the safety story: a backer can only withdraw from free capacity, so money reserved for active notes, and the unencumbered buffer behind them, are never withdrawable by anyone. The fee share lives outside the backing pool entirely, so sweeping it can never strand a reserve.
+
+### Risk Limits
+
+Three bounds cap what the system can owe, checked before any premium moves:
+- **Per holder, per stock:** your stack of active notes on one asset can never exceed the stock you actually hold (`activeProtected`).
+- **Per stock, all holders combined:** the active liability of any one stock is capped at a fixed share of the vault's deposits (30% at deploy), so a single stock's crash can only ever eat its slice.
+- **Total:** the global capacity check with the 20% buffer bounds everything together.
 
 ### Settlement
 

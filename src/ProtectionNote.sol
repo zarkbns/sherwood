@@ -49,6 +49,19 @@ contract ProtectionNote {
     ///         unbounded stack of notes. Decremented when a note settles.
     mapping(address => mapping(address => uint256)) public activeProtected;
 
+    /// @notice Sum of the reserved liability (settlement-token units) across ALL active
+    ///         notes on one asset, whatever the owner. Create refuses to push it past
+    ///         `maxAssetExposureBps` of the vault's current deposits, so a single
+    ///         stock's crash can never eat more than that slice of the vault — the
+    ///         concentration bound that sits next to the per-holder stack cap.
+    ///         Decremented when a note settles, on every settlement path.
+    mapping(address => uint256) public assetExposure;
+
+    /// @notice The per-asset concentration cap, in bps of the vault's deposits, fixed
+    ///         at deployment from DeployConfig. Immutable like every other term:
+    ///         risk limits that can move after money is committed are not limits.
+    uint256 public immutable maxAssetExposureBps;
+
     /// @notice The settlement feed (and its staleness bound) each note was priced
     ///         against, bound at creation. Settlement reads these — never the registry's
     ///         current entry — so rotating an asset's feed can only ever affect notes
@@ -74,6 +87,8 @@ contract ProtectionNote {
     error UnsupportedAsset();
     error AssetInactive();
     error InvalidAmount();
+    error InvalidExposureCap();
+    error AssetConcentration(address asset, uint256 exposure, uint256 cap);
     error InsufficientPosition(address asset, uint256 held, uint256 required);
     error NoteNotFound();
     error NotExpired();
@@ -86,10 +101,12 @@ contract ProtectionNote {
     ///         insurance claim past its filing deadline.
     uint256 public constant SETTLEMENT_WINDOW = 30 days;
 
-    constructor(AssetRegistry _registry, ProtectionOracle _oracle, SherwoodVault _vault) {
+    constructor(AssetRegistry _registry, ProtectionOracle _oracle, SherwoodVault _vault, uint256 _maxAssetExposureBps) {
         registry = _registry;
         oracle = _oracle;
         vault = _vault;
+        if (_maxAssetExposureBps == 0 || _maxAssetExposureBps > 10_000) revert InvalidExposureCap();
+        maxAssetExposureBps = _maxAssetExposureBps;
     }
 
     /// @notice Buy protection: reads the verified entry price, checks vault capacity,
@@ -134,9 +151,7 @@ contract ProtectionNote {
         );
         uint256 protectedUSD18 = ProtectionMath.protectedValue(amount, price8, level);
 
-        uint8 tokenDecimals = vault.token().decimals();
-        uint256 premiumToken = ProtectionMath.toTokenUnits(premiumUSD18, tokenDecimals);
-        uint256 liabilityToken = ProtectionMath.toTokenUnits(protectedUSD18, tokenDecimals);
+        (uint256 premiumToken, uint256 liabilityToken) = _toTokenAndCheckCap(asset, premiumUSD18, protectedUSD18);
 
         noteId = nextId + 1;
         // Consume the id before the vault call. reserveFor pulls the premium from the
@@ -150,6 +165,7 @@ contract ProtectionNote {
         // position, so the re-entrant create is measured against a truthful aggregate.
         // A revert anywhere below rolls the increment back with the rest of the call.
         activeProtected[msg.sender][asset] += amount;
+        assetExposure[asset] += liabilityToken;
         // Bind the settlement basis at creation: this note settles against the feed it
         // was priced with, whatever the registry does to the asset later.
         noteFeeds[noteId] = entry.feed;
@@ -159,6 +175,30 @@ contract ProtectionNote {
         vault.reserveFor(noteId, msg.sender, premiumToken, liabilityToken);
 
         _record(noteId, msg.sender, asset, amount, price8, level, duration, premiumUSD18, protectedUSD18, liabilityToken);
+    }
+
+    /// @dev Separate frame keeps `create` under the stack limit without via-ir — same
+    ///      trick as `_record`. Converts the USD-18 figures into settlement-token units
+    ///      and enforces the per-asset concentration cap before any token can move: the
+    ///      asset's whole active stack (every owner combined) plus this note must stay
+    ///      inside maxAssetExposureBps of the vault's current deposits, so one stock's
+    ///      crash can only ever reach its capped slice of the vault. Measured in
+    ///      reserved-liability units — the same units the vault reserves and
+    ///      totalDeposits counts. Checked before any state change; vault.totalDeposits()
+    ///      here is the pre-premium figure, the stricter of the two.
+    function _toTokenAndCheckCap(address asset, uint256 premiumUSD18, uint256 protectedUSD18)
+        private
+        view
+        returns (uint256 premiumToken, uint256 liabilityToken)
+    {
+        uint8 tokenDecimals = vault.token().decimals();
+        premiumToken = ProtectionMath.toTokenUnits(premiumUSD18, tokenDecimals);
+        liabilityToken = ProtectionMath.toTokenUnits(protectedUSD18, tokenDecimals);
+
+        uint256 exposureCap = (vault.totalDeposits() * maxAssetExposureBps) / 10_000;
+        if (assetExposure[asset] + liabilityToken > exposureCap) {
+            revert AssetConcentration(asset, assetExposure[asset] + liabilityToken, exposureCap);
+        }
     }
 
     /// @dev Separate frame keeps `create` under the stack limit without via-ir.
@@ -220,8 +260,9 @@ contract ProtectionNote {
         // the payout was full, partial, or zero — the note is gone either way, and the
         // position it committed should be free to back new protection. Cannot underflow:
         // create() credited exactly this amount for this note, and the status gate above
-        // means it is consumed exactly once.
+        // means it is consumed exactly once. Same for the asset's concentration ledger.
         activeProtected[recipient][note.asset] -= note.amount;
+        assetExposure[note.asset] -= note.liabilityToken;
 
         // Claim window: the premium prices this note's term, so the payout is the floor
         // gap at the first accepted fresh price between expiry and expiry +

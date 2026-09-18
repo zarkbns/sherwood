@@ -85,7 +85,9 @@ contract E2ETest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80, "premium collected from buyer");
         assertEq(vault.reserved(), FLOOR_80_5, "collateral reserved");
-        assertEq(vault.totalDeposits(), 100_000e18 + PREMIUM_80, "deposits plus premium");
+        // 90% of the premium backs protection; the fee slice parks outside deposits
+        assertEq(vault.totalDeposits(), 100_000e18 + (PREMIUM_80 * 9) / 10, "deposits plus backer premium");
+        assertEq(vault.pendingProtocolFees(), (PREMIUM_80 * 1) / 10, "protocol fee accrued");
         assertEq(settlement.balanceOf(address(vault)), 100_000e18 + PREMIUM_80, "vault solvent after create");
 
         vmWarp(T0 + DUR_7D - 1);
@@ -106,8 +108,12 @@ contract E2ETest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80 + 250e18, "payout to buyer");
         assertEq(vault.reserved(), 0, "collateral released");
-        assertEq(vault.totalDeposits(), 100_000e18 + PREMIUM_80 - 250e18, "deposits minus payout");
-        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "vault balance tracks deposits");
+        assertEq(vault.totalDeposits(), 100_000e18 + (PREMIUM_80 * 9) / 10 - 250e18, "deposits minus payout");
+        assertEq(
+            settlement.balanceOf(address(vault)),
+            vault.totalDeposits() + vault.pendingProtocolFees(),
+            "vault balance tracks deposits plus fees"
+        );
         assertEq(settlement.balanceOf(keeper), 0, "settle is permissionless, not stealable");
         assertFalse(note.isSettlable(id), "settled note not settlable");
 
@@ -133,7 +139,7 @@ contract E2ETest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80, "no payout, premium kept");
         assertEq(vault.reserved(), 0, "collateral released without transfer");
-        assertEq(vault.totalDeposits(), 100_000e18 + PREMIUM_80, "premium stays in vault");
+        assertEq(vault.totalDeposits(), 100_000e18 + (PREMIUM_80 * 9) / 10, "premium stays in the pool");
         assertEq(settlement.balanceOf(address(vault)), 100_000e18 + PREMIUM_80, "vault balance unchanged");
     }
 
@@ -143,12 +149,24 @@ contract E2ETest is NoteFixture {
         feed.setPrice(int256(ENTRY_250));
         assertEq(vault.availableCapacity(), 80e18, "20% buffer held back");
 
-        vmExpectRevert(SherwoodVault.InsufficientCapacity.selector);
+        // A liability larger than the whole deposit is over-concentrated first: the
+        // asset cap (100% of deposits here) speaks before capacity does. Either way,
+        // the invariant under test is that a failed create collects nothing.
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.AssetConcentration.selector, tsla, 200e18, 100e18));
         vmPrank(buyer);
         note.create(tsla, 1e18, LEVEL_80, DUR_7D);
         assertEq(settlement.balanceOf(buyer), 1e24, "nothing collected on failed create");
         assertEq(vault.reserved(), 0, "nothing reserved on failed create");
         assertEq(vault.totalDeposits(), 100e18, "deposits untouched on failed create");
+
+        // 0.4 TSLA: liability 80 sits inside the deposit bound, but
+        // premium 2.5e18 + liability 80e18 = 82.5e18 > 80e18 capacity.
+        vmExpectRevert(SherwoodVault.InsufficientCapacity.selector);
+        vmPrank(buyer);
+        note.create(tsla, 0.4e18, LEVEL_80, DUR_7D);
+        assertEq(settlement.balanceOf(buyer), 1e24, "nothing collected on capacity revert");
+        assertEq(vault.reserved(), 0, "nothing reserved on capacity revert");
 
         // 0.38 TSLA: premium 2.375e18 + liability 76e18 = 78.375e18, the largest
         // whole-precision fit under the 80e18 cap.
@@ -157,7 +175,7 @@ contract E2ETest is NoteFixture {
         assertEq(id, 1, "exact fit accepted");
         assertEq(settlement.balanceOf(buyer), 1e24 - 2.375e18, "premium collected on fit");
         assertEq(vault.reserved(), 76e18, "liability reserved on fit");
-        assertEq(vault.availableCapacity(), 5.9e18, "capacity reflects premium raising deposits");
+        assertEq(vault.availableCapacity(), 5.71e18, "capacity reflects the backer premium raising deposits");
     }
 
     function test_E2E_StaleFeedRejected_AtCreateAndAtSettle() public {
@@ -270,7 +288,7 @@ contract E2ETest is NoteFixture {
         uint256 id2 = note.create(tsla, 2e18, LEVEL_90, DUR_7D);
 
         assertEq(vault.reserved(), FLOOR_80_5 + FLOOR_90_2, "reserved is the sum of active liabilities");
-        assertEq(vault.availableCapacity(), 78_589e18, "capacity after both notes");
+        assertEq(vault.availableCapacity(), 78_585.1e18, "capacity after both notes");
         assertGe(settlement.balanceOf(address(vault)), vault.reserved(), "vault solvent while notes active");
 
         vmWarp(T0 + DUR_7D);
@@ -282,15 +300,18 @@ contract E2ETest is NoteFixture {
         assertEq(settlement.balanceOf(buyer), 1e24 - PREMIUM_80 + 250e18, "buyer payout 250");
         assertEq(settlement.balanceOf(trader), 1e24 - PREMIUM_90_2 + 150e18, "trader payout 150");
         assertEq(vault.reserved(), 0, "all liabilities released");
-        assertEq(vault.totalDeposits(), 99_648.75e18, "deposits converge to balance");
+        assertEq(vault.totalDeposits(), 99_643.875e18, "deposits converge to balance minus fees");
         assertEq(settlement.balanceOf(address(vault)), 99_648.75e18, "vault balance after payouts");
         assertFalse(note.isSettlable(id1), "note 1 settled");
         assertFalse(note.isSettlable(id2), "note 2 settled");
 
-        vault.withdrawSurplus(depositor, 1e18);
+        // The backer who funded the vault withdraws free funds — never the reserve
+        vmPrank(depositor);
+        vault.withdraw(1e18);
         assertEq(settlement.balanceOf(depositor), 1e18, "surplus withdrawn");
 
         vmExpectRevert(SherwoodVault.EncumberedFunds.selector);
-        vault.withdrawSurplus(depositor, 99_647.75e18 + 1);
+        vmPrank(depositor);
+        vault.withdraw(99_647.75e18 + 1);
     }
 }

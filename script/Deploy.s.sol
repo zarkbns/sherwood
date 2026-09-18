@@ -64,12 +64,16 @@ contract Deploy is ScriptBase {
 
         vmStartBroadcast();
 
+        // Fees route to the deploying owner by default; a different destination is a
+        // `setFeeTerms` call away and the fee share is hard-capped at 2500 bps.
+        address treasury = msg.sender;
+
         AssetRegistry registry = new AssetRegistry();
         address uptimeFeed = vmEnvAddressOpt("SEQUENCER_UPTIME_FEED");
         uint256 gracePeriod = vmEnvUint("SEQUENCER_GRACE_PERIOD", DEFAULT_SEQUENCER_GRACE_PERIOD);
         ProtectionOracle oracle = new ProtectionOracle(IAggregatorV3(uptimeFeed), gracePeriod);
-        SherwoodVault vault = new SherwoodVault(IERC20(settlement), cfg.bufferBps);
-        ProtectionNote note = new ProtectionNote(registry, oracle, vault);
+        SherwoodVault vault = new SherwoodVault(IERC20(settlement), cfg.bufferBps, cfg.protocolFeeBps, treasury);
+        ProtectionNote note = new ProtectionNote(registry, oracle, vault, cfg.maxAssetExposureBps);
 
         // Vault accepts reserve/settle calls only from the note contract.
         vault.setNoteContract(address(note));
@@ -85,6 +89,11 @@ contract Deploy is ScriptBase {
         require(address(note.vault()) == address(vault), "vault not wired");
         require(address(vault.token()) == settlement, "settlement token mismatch");
         require(vault.bufferBps() == cfg.bufferBps, "buffer mismatch");
+        require(vault.protocolFeeBps() == cfg.protocolFeeBps, "protocol fee mismatch");
+        require(vault.treasury() == treasury, "treasury not wired");
+        require(vault.pendingProtocolFees() == 0, "fee bucket not fresh");
+        require(vault.totalShares() == 0, "share ledger not fresh");
+        require(note.maxAssetExposureBps() == cfg.maxAssetExposureBps, "exposure cap not wired");
         require(address(oracle.sequencerUptimeFeed()) == uptimeFeed, "sequencer uptime feed not wired");
         require(oracle.sequencerGracePeriod() == gracePeriod, "sequencer grace period not wired");
 

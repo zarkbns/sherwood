@@ -42,6 +42,13 @@ abstract contract NoteFixture is TestBase {
     uint256 constant DUR_30D = 30 days;
 
     function _deploy(uint8 settlementDecimals) internal {
+        _deployWithCap(settlementDecimals, 10_000);
+    }
+
+    /// @dev `capBps` 10_000 in the shared fixture means "no concentration limit under
+    ///      test" — every liability these tests create fits. Cap-focused tests deploy
+    ///      with a tight cap and assert the reverts explicitly.
+    function _deployWithCap(uint8 settlementDecimals, uint256 capBps) internal {
         vmWarp(T0);
         settlement = new MockERC20("settlement", "STBL", settlementDecimals);
         stock = new MockERC20("Tesla", "TSLA", 18);
@@ -49,8 +56,8 @@ abstract contract NoteFixture is TestBase {
         registry = new AssetRegistry();
         // No sequencer uptime feed: the check is off, as on Robinhood Chain testnet.
         oracle = new ProtectionOracle(IAggregatorV3(address(0)), 0);
-        vault = new SherwoodVault(settlement, 2000);
-        note = new ProtectionNote(registry, oracle, vault);
+        vault = new SherwoodVault(settlement, 2000, 1000, address(this));
+        note = new ProtectionNote(registry, oracle, vault, capBps);
         vault.setNoteContract(address(note));
 
         feed = new MockAggregator(8);
@@ -156,9 +163,11 @@ contract ProtectionNoteTest is NoteFixture {
         _buy(buyer, AMOUNT_5, LEVEL_80, DUR_7D);
 
         assertEq(settlement.balanceOf(buyer), 1e24 - 12.5e18, "premium not collected");
-        assertEq(vault.totalDeposits(), 1012.5e18, "premium should join deposits");
+        // 90% of the premium backs protection; the 10% fee parks outside deposits
+        assertEq(vault.totalDeposits(), 1011.25e18, "backer premium should join deposits");
+        assertEq(vault.pendingProtocolFees(), 1.25e18, "protocol fee bucket");
         assertEq(vault.reserved(), 400e18, "liability not reserved");
-        assertEq(settlement.balanceOf(address(vault)), 1012.5e18, "vault must hold the tokens");
+        assertEq(settlement.balanceOf(address(vault)), 1012.5e18, "vault must hold deposits plus fees");
     }
 
     function test_Create_IncrementingIds() public {
@@ -261,8 +270,8 @@ contract ProtectionNoteTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), buyerBefore + 100e18, "payout should be $100");
         assertEq(vault.reserved(), 0, "liability released");
-        assertEq(vault.totalDeposits(), 912.5e18, "payout leaves deposits");
-        assertEq(settlement.balanceOf(address(vault)), 912.5e18, "vault balance tracks deposits");
+        assertEq(vault.totalDeposits(), 911.25e18, "payout leaves deposits");
+        assertEq(settlement.balanceOf(address(vault)), 912.5e18, "vault balance tracks deposits plus fees");
 
         (, , , , , , , , , ProtectionNote.Status status) = note.notes(id);
         assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "note should be SETTLED");
@@ -277,7 +286,7 @@ contract ProtectionNoteTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), buyerBefore, "no payout above floor");
         assertEq(vault.reserved(), 0, "liability still released");
-        assertEq(vault.totalDeposits(), 1012.5e18, "deposits unchanged");
+        assertEq(vault.totalDeposits(), 1011.25e18, "deposits unchanged");
     }
 
     function test_Settle_ZeroAtExactFloor() public {
@@ -346,8 +355,8 @@ contract ProtectionNoteTest is NoteFixture {
         // floor 2 x 100 x 0.8 = 160, current 2 x 60 = 120 -> payout 40, not 100
         assertEq(settlement.balanceOf(buyer), buyerBefore + 40e18, "payout tracks the held share");
         assertEq(vault.reserved(), 0, "the whole 400 liability releases, not just the paid slice");
-        assertEq(vault.totalDeposits(), 972.5e18, "deposits drop by the reduced payout");
-        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
+        assertEq(vault.totalDeposits(), 971.25e18, "deposits drop by the reduced payout");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits() + vault.pendingProtocolFees(), "custody matches accounting");
 
         (, , , , , , , , uint256 liabilityToken, ProtectionNote.Status status) = note.notes(id);
         assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "a partial position still settles");
@@ -366,9 +375,9 @@ contract ProtectionNoteTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), buyerBefore, "no position, no payout");
         assertEq(vault.reserved(), 0, "the reserve must never strand on a deserted note");
-        assertEq(vault.totalDeposits(), 1012.5e18, "nothing left the vault");
-        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
-        assertEq(vault.availableCapacity(), 810e18, "capacity is handed back in full");
+        assertEq(vault.totalDeposits(), 1011.25e18, "nothing left the vault");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits() + vault.pendingProtocolFees(), "custody matches accounting");
+        assertEq(vault.availableCapacity(), 809e18, "capacity is handed back in full");
 
         (, , uint256 amount, , , , , , , ProtectionNote.Status status) = note.notes(id);
         assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "a deserted note still settles");
@@ -407,7 +416,11 @@ contract ProtectionNoteTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer) - buyerBefore, expected, "payout on the held position");
         assertEq(vault.reserved(), 0, "liability always released");
-        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "vault stays fully backed");
+        assertEq(
+            settlement.balanceOf(address(vault)),
+            vault.totalDeposits() + vault.pendingProtocolFees(),
+            "vault stays fully backed (deposits plus fee bucket)"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -572,8 +585,8 @@ contract ProtectionNoteTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), 1e24 - 12.5e18, "payout forfeited");
         assertEq(vault.reserved(), 0, "reserve released even on forfeit");
-        assertEq(vault.totalDeposits(), 1012.5e18, "nothing left the vault");
-        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits(), "custody matches accounting");
+        assertEq(vault.totalDeposits(), 1011.25e18, "nothing left the vault");
+        assertEq(settlement.balanceOf(address(vault)), vault.totalDeposits() + vault.pendingProtocolFees(), "custody matches accounting");
 
         (, , , , , , , , , ProtectionNote.Status status) = note.notes(id);
         assertEq(uint8(status), uint8(ProtectionNote.Status.SETTLED), "note completes on forfeit");
@@ -796,7 +809,8 @@ contract ProtectionNoteUsdcTest is NoteFixture {
 
         assertEq(settlement.balanceOf(buyer), 1000e6 - 12.5e6 + 100e6, "payout 100 USDC");
         assertEq(vault.reserved(), 0, "liability released");
-        assertEq(vault.totalDeposits(), 2000e6 + 12.5e6 - 100e6, "accounting consistent");
+        assertEq(vault.totalDeposits(), 2000e6 + 11.25e6 - 100e6, "accounting consistent (fee split)");
+        assertEq(vault.pendingProtocolFees(), 1.25e6, "fee bucket in USDC units");
     }
 
     function test_Truncation_NeverOverpaysLiability() public {
@@ -816,5 +830,110 @@ contract ProtectionNoteUsdcTest is NoteFixture {
 
         uint256 paid = settlement.balanceOf(buyer) - buyerBefore;
         assertLe(paid, liabilityToken, "inv3 through truncation");
+    }
+}
+
+/// @title Concentration cap: one stock cannot eat more than its capped slice of the vault
+/// @notice Per-test deployments, each at the cap it exercises — the shared fixture runs
+///         with the cap effectively off so the rest of the suite stays focused.
+contract ProtectionNoteConcentrationTest is NoteFixture {
+    function _fundTrader() internal {
+        settlement.mint(trader, 1e24);
+        stock.mint(trader, 10_000e18);
+        vmStartPrank(trader);
+        settlement.approve(address(vault), 1e24);
+        vmStopPrank();
+    }
+
+    function test_Create_ConcentrationCap_BlocksStackingOneStockPastItsSlice() public {
+        _deployWithCap(18, 5000); // 50% of deposits per asset, round numbers
+        _fundVault(1000e18); // cap = 500e18 of liability on TSLA
+        _fundBuyer(1e24);
+
+        // 5 TSLA @ 80%: liability 400, inside the 500 slice
+        assertEq(_buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D), 1, "first note inside the slice");
+        assertEq(note.assetExposure(tsla), 400e18, "exposure tracked");
+
+        // 5 more TSLA @ 70%: liability 350 -> 750 total. The cap self-scales with the
+        // vault: the first note's backer premium raised deposits, so the live slice is
+        // 505.0625 — computed here rather than hardcoded.
+        uint256 cap = (vault.totalDeposits() * 5000) / 10_000;
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.AssetConcentration.selector, tsla, 750e18, cap));
+        vmPrank(buyer);
+        note.create(tsla, AMOUNT_5, LEVEL_70, DUR_1D);
+        assertEq(note.assetExposure(tsla), 400e18, "failed create changed nothing");
+    }
+
+    function test_Create_ConcentrationCap_AggregatesAcrossOwners() public {
+        _deployWithCap(18, 5000);
+        _fundVault(1000e18);
+        _fundBuyer(1e24);
+        assertEq(_buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D), 1, "buyer takes 400 of the 500 slice");
+
+        // A different owner on the SAME stock pushes the asset past the cap. The
+        // per-owner stack cap (activeProtected) cannot see this; the asset cap can.
+        _fundTrader();
+        uint256 cap = (vault.totalDeposits() * 5000) / 10_000;
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.AssetConcentration.selector, tsla, 750e18, cap));
+        vmPrank(trader);
+        note.create(tsla, AMOUNT_5, LEVEL_70, DUR_1D);
+        assertEq(note.assetExposure(tsla), 400e18, "cross-owner create changed nothing");
+    }
+
+    function test_Settle_FreesConcentrationHeadroom() public {
+        _deployWithCap(18, 5000);
+        _fundVault(1000e18);
+        _fundBuyer(1e24);
+        uint256 first = _buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D); // exposure 400
+
+        // At the cap, the 70% note (350 more) is out of the question
+        uint256 cap = (vault.totalDeposits() * 5000) / 10_000;
+        vmExpectRevertData(abi.encodeWithSelector(
+            ProtectionNote.AssetConcentration.selector, tsla, 750e18, cap));
+        vmPrank(buyer);
+        note.create(tsla, AMOUNT_5, LEVEL_70, DUR_1D);
+
+        // Settlement releases the slice, and the freed headroom is real
+        vmWarp(T0 + DUR_1D + 1);
+        feed.setPrice(60e8);
+        note.settle(first);
+        assertEq(note.assetExposure(tsla), 0, "settled note freed its slice");
+
+        assertEq(_buy(buyer, AMOUNT_5, LEVEL_70, DUR_1D), 2, "freed slice reusable");
+    }
+
+    function test_Create_ConcentrationCap_AllowsExactlyTheBoundary() public {
+        _deployWithCap(18, 4000); // 40% of 1000 = exactly a 5x80% note's floor
+        _fundVault(1000e18);
+        _fundBuyer(1e24);
+
+        assertEq(_buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D), 1, "liability == cap is allowed");
+        assertEq(note.assetExposure(tsla), 400e18, "at the boundary");
+    }
+
+    function test_Create_ConcentrationCap_ScalesWithTheVault() public {
+        _deployWithCap(18, 5000);
+        _fundVault(2000e18); // cap = 1000 now
+        _fundBuyer(1e24);
+        _fundTrader();
+
+        assertEq(_buy(buyer, AMOUNT_5, LEVEL_80, DUR_1D), 1, "first 400");
+        assertEq(note.assetExposure(tsla), 400e18, "tracked");
+
+        // 750 total is past the OLD absolute number's headroom but fits the scaled cap
+        vmPrank(trader);
+        uint256 second = note.create(tsla, AMOUNT_5, LEVEL_70, DUR_1D);
+        assertEq(second, 2, "deeper vault, bigger slice");
+        assertEq(note.assetExposure(tsla), 750e18, "both notes counted");
+    }
+
+    function test_Constructor_RejectsAnUnusableCap() public {
+        vmExpectRevert(ProtectionNote.InvalidExposureCap.selector);
+        new ProtectionNote(registry, oracle, vault, 0);
+
+        vmExpectRevert(ProtectionNote.InvalidExposureCap.selector);
+        new ProtectionNote(registry, oracle, vault, 10_001);
     }
 }

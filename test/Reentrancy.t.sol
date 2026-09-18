@@ -47,8 +47,8 @@ contract ReentrancyTest is TestBase {
         stock = new MockERC20("Tesla", "TSLA", 18);
         registry = new AssetRegistry();
         oracle = new ProtectionOracle(IAggregatorV3(address(0)), 0);
-        vault = new SherwoodVault(token, BUFFER_20);
-        note = new ProtectionNote(registry, oracle, vault);
+        vault = new SherwoodVault(token, BUFFER_20, 1000, address(this));
+        note = new ProtectionNote(registry, oracle, vault, 10_000);
         vault.setNoteContract(address(note));
 
         feed = new MockAggregator(8);
@@ -106,9 +106,9 @@ contract ReentrancyTest is TestBase {
         assertEq(probe.calls(), 1, "the probe should have run exactly once");
         // Seen from inside the premium pull, the collateral is already on the books.
         // This is precisely what denies a re-entrant create a second free pass at the
-        // same capacity.
+        // same capacity. Deposits carry the backer share; the fee slice stays out.
         assertEq(probe.reservedAtCall(), LIABILITY, "liability must be reserved before the pull");
-        assertEq(probe.depositsAtCall(), 1_000e6 + PREMIUM, "premium must be counted before the pull");
+        assertEq(probe.depositsAtCall(), 1_000e6 + (PREMIUM * 9) / 10, "backer premium must be counted before the pull");
     }
 
     function test_SettlePayout_RecordsTheReleaseBeforePayingOut() public {
@@ -127,7 +127,7 @@ contract ReentrancyTest is TestBase {
 
         assertTrue(token.fired(), "the hook should have run during the payout");
         assertEq(probe.reservedAtCall(), 0, "the release must be recorded before the payout leaves");
-        assertEq(probe.depositsAtCall(), 1_000e6 + PREMIUM - 150e6, "the payout must be off the books first");
+        assertEq(probe.depositsAtCall(), 1_000e6 + (PREMIUM * 9) / 10 - 150e6, "the payout must be off the books first");
     }
 
     // ------------------------------------------------------------------
@@ -201,7 +201,7 @@ contract ReentrancyTest is TestBase {
 
         // The refused attempt collected nothing from the token
         assertEq(token.balanceOf(address(token)), 10_000e6, "the nested premium must never be collected");
-        assertEq(vault.totalDeposits(), 515.625e6 + PREMIUM, "only the outer premium may join deposits");
-        assertEq(token.balanceOf(address(vault)), vault.totalDeposits(), "custody must track accounting");
+        assertEq(vault.totalDeposits(), 515.625e6 + (PREMIUM * 9) / 10, "only the backer premium joins deposits");
+        assertEq(token.balanceOf(address(vault)), vault.totalDeposits() + vault.pendingProtocolFees(), "custody must track deposits plus fees");
     }
 }

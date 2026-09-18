@@ -6,18 +6,36 @@ import {Ownable} from "./Ownable.sol";
 
 /// @title SherwoodVault
 /// @notice Holds the settlement stablecoin, reserves collateral for active Protection
-///         Notes, and executes payouts. The protocol never sells more protection than
-///         it can cover: `reserveFor` reverts unless reserved + liability fits inside
-///         deposits minus the reserve buffer, and the check always runs before any
-///         premium is collected.
+///         Notes, and executes payouts. Anyone can back protection by depositing: their
+///         stake is tracked in shares, premiums flow in pro rata (minus Sherwood's fee
+///         share), and payouts are borne pro rata. The protocol never sells more
+///         protection than it can cover: `reserveFor` reverts unless reserved + liability
+///         fits inside deposits minus the reserve buffer, the check always runs before
+///         any premium is collected, and no withdrawal path — depositor or fee claim —
+///         can take funds that active notes need.
 contract SherwoodVault is Ownable {
     IERC20 public immutable token;
 
-    uint256 public totalDeposits; // deposits + collected premiums, in token units
+    uint256 public totalDeposits; // backer deposits + backer premiums, in token units
     uint256 public reserved; // sum of active note liabilities, in token units
     uint256 public bufferBps; // fraction of deposits kept unencumbered, e.g. 2000 = 20%
 
     address public noteContract;
+
+    // ---------------------------------------------------------------- backers --
+    // Deposits are pooled; each backer's claim is a share count. `totalDeposits`
+    // rises with every premium (the backer share of it) and falls with every payout,
+    // so a share's asset value is exactly how its holder earns premiums and bears
+    // losses — no separate yield ledger to drift out of sync.
+    uint256 public totalShares;
+    mapping(address => uint256) public sharesOf;
+
+    // -------------------------------------------------------------- protocol --
+    // Sherwood's cut of each premium, accrued to a bucket that is never part of
+    // `totalDeposits`: it backs nothing, so claiming it can never strand a reserve.
+    uint256 public protocolFeeBps; // e.g. 1000 = Sherwood keeps 10% of premiums
+    address public treasury;
+    uint256 public pendingProtocolFees;
 
     event Deposited(address indexed depositor, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
@@ -26,6 +44,9 @@ contract SherwoodVault is Ownable {
     event PayoutExecuted(uint256 indexed noteId, address indexed to, uint256 amount);
     event BufferChanged(uint256 bufferBps);
     event NoteContractSet(address indexed noteContract);
+    event ProtocolFeeAccrued(uint256 indexed noteId, uint256 amount);
+    event ProtocolFeesClaimed(address indexed to, uint256 amount);
+    event FeeTermsChanged(uint256 protocolFeeBps, address treasury);
 
     error InsufficientCapacity();
     error InsufficientVaultBalance();
@@ -37,33 +58,91 @@ contract SherwoodVault is Ownable {
     error TransferFailed();
     error EncumberedFunds();
     error AlreadySet();
+    error InsufficientShares();
+    error SharesTooSmall();
+    error FeeTooHigh();
+    error ZeroTreasury();
 
     uint256 public constant MAX_BUFFER_BPS = 5000;
+    uint256 public constant MAX_PROTOCOL_FEE_BPS = 2500;
+    uint256 public constant BPS = 10_000;
 
-    constructor(IERC20 _token, uint256 _bufferBps) {
+    constructor(IERC20 _token, uint256 _bufferBps, uint256 _protocolFeeBps, address _treasury) {
         token = _token;
         _setBuffer(_bufferBps);
+        _setFeeTerms(_protocolFeeBps, _treasury);
     }
 
-    /// @notice Fund the vault with settlement token. Premiums collected via reserveFor
-    ///         are also counted here, keeping `reserved <= free deposits` meaningful.
+    /// @notice Fund the vault with settlement token and mint backer shares at the
+    ///         current exchange rate (1:1 into an empty vault). Premiums collected via
+    ///         reserveFor raise `totalDeposits` without minting shares, so earlier
+    ///         backers' shares earn the premiums; payouts shrink `totalDeposits` and
+    ///         the same shares bear the losses.
     function deposit(uint256 amount) external {
         if (amount == 0) revert InvalidAmount();
+        // Rate read before any state change. A dust deposit that would mint zero
+        // shares is refused rather than accepted as a silent donation.
+        uint256 mint = totalDeposits == 0 ? amount : (amount * totalShares) / totalDeposits;
+        if (mint == 0) revert SharesTooSmall();
         bool ok = token.transferFrom(msg.sender, address(this), amount);
         if (!ok) revert TransferFailed();
         totalDeposits += amount;
+        sharesOf[msg.sender] += mint;
+        totalShares += mint;
         emit Deposited(msg.sender, amount);
     }
 
-    /// @notice Reserve collateral for a new note and collect its premium.
-    ///         Capacity is checked before any token movement; if it fails the whole
-    ///         call reverts with nothing collected. onlyNote because liability
-    ///         accounting must stay in sync with note state.
+    /// @notice Withdraw a chosen asset amount by burning the shares it costs. Capped at
+    ///         `availableCapacity()`: the funds reserved for active notes, and the
+    ///         unencumbered buffer behind them, are never withdrawable by anyone.
+    ///         Winding the vault down is an explicit two-step — settle the notes,
+    ///         `setBufferBps(0)`, then withdraw — for depositors exactly as it was
+    ///         for the owner before them.
     ///
-    ///         The check is `premium + liability <= availableCapacity()`, which is the
-    ///         spec precondition tightened by the premium itself; it implies invariant 1
-    ///         (`premium + liability <= usable - reserved` => `reserved + liability <=
-    ///         (deposits + premium) * (1 - buffer)`) with room to spare.
+    ///         Share cost rounds UP against the caller (ceilDiv), so a withdrawal can
+    ///         never pay out more than the requested assets; the pool keeps the dust.
+    function withdraw(uint256 assets) external {
+        if (assets == 0) revert InvalidAmount();
+        if (assets > availableCapacity()) revert EncumberedFunds();
+        uint256 burn = (assets * totalShares + totalDeposits - 1) / totalDeposits;
+        if (burn > sharesOf[msg.sender]) revert InsufficientShares();
+
+        sharesOf[msg.sender] -= burn;
+        totalShares -= burn;
+        totalDeposits -= assets;
+        bool ok = token.transfer(msg.sender, assets);
+        if (!ok) revert TransferFailed();
+        emit Withdrawn(msg.sender, assets);
+    }
+
+    /// @notice Redeem shares for assets — the shares-denominated twin of `withdraw`.
+    ///         Asset proceeds round DOWN against the caller; the pool keeps the dust.
+    function redeem(uint256 shareAmount) external {
+        if (shareAmount == 0) revert InvalidAmount();
+        if (shareAmount > sharesOf[msg.sender]) revert InsufficientShares();
+        uint256 assets = (shareAmount * totalDeposits) / totalShares;
+        if (assets > availableCapacity()) revert EncumberedFunds();
+
+        sharesOf[msg.sender] -= shareAmount;
+        totalShares -= shareAmount;
+        totalDeposits -= assets;
+        bool ok = token.transfer(msg.sender, assets);
+        if (!ok) revert TransferFailed();
+        emit Withdrawn(msg.sender, assets);
+    }
+
+    /// @notice Reserve collateral for a new note and collect its premium, split into
+    ///         the backer share (joins `totalDeposits`, backing future notes) and
+    ///         Sherwood's fee share (parked outside the backing pool). Capacity is
+    ///         checked before any token movement; if it fails the whole call reverts
+    ///         with nothing collected. onlyNote because liability accounting must
+    ///         stay in sync with note state.
+    ///
+    ///         The check is `premium + liability <= availableCapacity()`, evaluated on
+    ///         pre-premium deposits; since only `backerCut <= premium` is added to
+    ///         deposits afterwards, the post-state usable line sits at or above where
+    ///         invariant 1 needs it — the fee slice can only ever make backing tighter,
+    ///         never looser.
     ///
     ///         State is written before the token pull (checks-effects-interactions):
     ///         a settlement token with a transfer hook could otherwise re-enter and pass
@@ -71,7 +150,11 @@ contract SherwoodVault is Ownable {
     function reserveFor(uint256 noteId, address payer, uint256 premium, uint256 liability) external onlyNote {
         if (premium + liability > availableCapacity()) revert InsufficientCapacity();
 
-        totalDeposits += premium;
+        uint256 protocolCut = (premium * protocolFeeBps) / BPS;
+        uint256 backerCut = premium - protocolCut;
+
+        totalDeposits += backerCut;
+        pendingProtocolFees += protocolCut;
         reserved += liability;
 
         if (premium > 0) {
@@ -80,6 +163,7 @@ contract SherwoodVault is Ownable {
         }
 
         emit CapacityReserved(noteId, payer, premium, liability);
+        if (protocolCut > 0) emit ProtocolFeeAccrued(noteId, protocolCut);
     }
 
     /// @notice Settle a note: pay out to the recipient and release the reserved
@@ -110,25 +194,27 @@ contract SherwoodVault is Ownable {
 
     /// @notice Free capacity available for new liabilities.
     function availableCapacity() public view returns (uint256) {
-        uint256 usable = totalDeposits - (totalDeposits * bufferBps) / 10_000;
+        uint256 usable = totalDeposits - (totalDeposits * bufferBps) / BPS;
         return usable > reserved ? usable - reserved : 0;
     }
 
-    /// @notice Owner withdrawal, capped at `availableCapacity()` so invariant 1 keeps
-    ///         holding after the withdrawal: taking deposits out lowers the usable line
-    ///         by exactly the same amount it lowers the deposit total, so the buffer and
-    ///         the reserved collateral both stay covered. Anything above that line is
-    ///         either reserved for an active note or part of the reserve buffer.
-    ///
-    ///         The buffer is therefore never withdrawable by accident. Winding the vault
-    ///         down is an explicit two-step: settle the notes, `setBufferBps(0)`, then
-    ///         withdraw everything.
-    function withdrawSurplus(address to, uint256 amount) external onlyOwner {
-        if (amount > availableCapacity()) revert EncumberedFunds();
-        totalDeposits -= amount;
-        bool ok = token.transfer(to, amount);
+    /// @notice Sweep accrued protocol fees to the treasury. The fee bucket never
+    ///         counted toward `totalDeposits`, so this cannot touch the funds backing
+    ///         active notes — the physical-balance invariant
+    ///         `balanceOf(this) >= totalDeposits + pendingProtocolFees` holds through
+    ///         every path (deposit, reserveFor, settlePayout, sweep).
+    function claimProtocolFees() external onlyOwner {
+        uint256 amount = pendingProtocolFees;
+        if (amount == 0) revert InvalidAmount();
+        pendingProtocolFees = 0;
+        bool ok = token.transfer(treasury, amount);
         if (!ok) revert TransferFailed();
-        emit Withdrawn(to, amount);
+        emit ProtocolFeesClaimed(treasury, amount);
+    }
+
+    /// @notice Set Sherwood's premium share (capped) and the fee destination.
+    function setFeeTerms(uint256 newProtocolFeeBps, address newTreasury) external onlyOwner {
+        _setFeeTerms(newProtocolFeeBps, newTreasury);
     }
 
     function setBufferBps(uint256 newBufferBps) external onlyOwner {
@@ -149,6 +235,14 @@ contract SherwoodVault is Ownable {
         emit NoteContractSet(_noteContract);
     }
 
+    function _setFeeTerms(uint256 newProtocolFeeBps, address newTreasury) internal {
+        if (newProtocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        if (newTreasury == address(0)) revert ZeroTreasury();
+        protocolFeeBps = newProtocolFeeBps;
+        treasury = newTreasury;
+        emit FeeTermsChanged(newProtocolFeeBps, newTreasury);
+    }
+
     function _setBuffer(uint256 newBufferBps) internal {
         if (newBufferBps > MAX_BUFFER_BPS) revert BufferTooHigh();
         // Raising the buffer lowers the usable line, so a buffer that is fine for an
@@ -156,7 +250,7 @@ contract SherwoodVault is Ownable {
         // smaller one. Invariant 1 has to hold at all times, including immediately
         // after this call, so the raise is refused rather than allowed to breach it.
         // Lowering the buffer only ever raises the usable line and is always accepted.
-        uint256 usable = totalDeposits - (totalDeposits * newBufferBps) / 10_000;
+        uint256 usable = totalDeposits - (totalDeposits * newBufferBps) / BPS;
         if (usable < reserved) revert BufferBreachesReserves();
         bufferBps = newBufferBps;
         emit BufferChanged(newBufferBps);
