@@ -13,18 +13,18 @@ export type ProtocolAddresses = {
 };
 
 const deployments: Partial<Record<number, ProtocolAddresses>> = {
-  // Robinhood Chain testnet (46630) — v6 deployed 2026-09-16, see deploy/deployments.json.
+  // Robinhood Chain testnet (46630) — v7 deployed 2026-09-18, see deploy/deployments.json.
   // Env overrides win, so a redeployment can be pointed at without a code change.
-  // v6 carries the six audit fixes (aggregate exposure cap, 30-day claim window with
-  // forfeit, per-note settlement feed binding, set-once note-contract binding, 18-dec
-  // token validation) on top of v5's eligibleAmount basis; the v5 stack (0x4DE45eCb…/
-  // 0x663da2d1…/0x1dd47dE1…/0x073AEBD5…) stays on-chain holding the v5 demo evidence
-  // but is no longer the default.
+  // v7 carries the backer upgrade: vault shares (depositors earn 90% of premiums pro
+  // rata, withdrawals capacity-gated, fee share parked outside the backing pool) and
+  // the per-stock concentration cap (30% of deposits, immutable). The v6 stack
+  // (0xC3aCC52C…/0x8366fcab…/0x8F7D2099…/0xb2F4391c…) stays on-chain but is no longer
+  // the default; v5 and v4 hold the demo evidence below.
   46630: {
-    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0xC3aCC52C3dAF1c2D1B65725781063dCfc6a1c6Fd") as Address,
-    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x8366fcabD007361D899A55A6dA3455531C070096") as Address,
-    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x8F7D2099738e72e40CfF2e6fF5918d11f516f988") as Address,
-    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0xb2F4391cf4c997C71bDC39d831DD389cECe06729") as Address,
+    registry: (process.env.NEXT_PUBLIC_REGISTRY_ROBINHOOD_TESTNET ?? "0xb7Dbaa2bC029eb1DE0C7D1929aE9402f857b49A7") as Address,
+    oracle: (process.env.NEXT_PUBLIC_ORACLE_ROBINHOOD_TESTNET ?? "0x1f028eEF28E5981748323E9D43c5FeB7a867A52F") as Address,
+    vault: (process.env.NEXT_PUBLIC_VAULT_ROBINHOOD_TESTNET ?? "0x6789c0D19ADa68d0F9A602Ab9a096257dCFcAA6E") as Address,
+    note: (process.env.NEXT_PUBLIC_NOTE_ROBINHOOD_TESTNET ?? "0x6BD1a3F9aA4C61711CA41830C06B37216aFdf3A9") as Address,
   },
 };
 

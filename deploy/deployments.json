@@ -3,23 +3,27 @@
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
-  "deploymentVersion": 6,
-  "deployedAt": "2026-09-16",
+  "deploymentVersion": 7,
+  "deployedAt": "2026-09-18",
   "contracts": {
-    "registry": "0xC3aCC52C3dAF1c2D1B65725781063dCfc6a1c6Fd",
-    "oracle": "0x8366fcabD007361D899A55A6dA3455531C070096",
-    "vault": "0x8F7D2099738e72e40CfF2e6fF5918d11f516f988",
-    "note": "0xb2F4391cf4c997C71bDC39d831DD389cECe06729"
+    "registry": "0xb7Dbaa2bC029eb1DE0C7D1929aE9402f857b49A7",
+    "oracle": "0x1f028eEF28E5981748323E9D43c5FeB7a867A52F",
+    "vault": "0x6789c0D19ADa68d0F9A602Ab9a096257dCFcAA6E",
+    "note": "0x6BD1a3F9aA4C61711CA41830C06B37216aFdf3A9"
   },
   "deployTxHashes": {
-    "AssetRegistry": "0x2525e853dc8778f4ee917b20d2ce2f4a5d29c23213e86ba84f17422eb5015d9d",
-    "ProtectionOracle": "0x625d95e7c3705fe44bc3a94ad45634fc49ff7bcc11b74d98e7208f307d3f0763",
-    "SherwoodVault": "0x9791cca6255bfd89b132527ebfc61fedfc7da27107dec7a478634fda567117d9",
-    "ProtectionNote": "0xe23e6b5c67242a95a6dc6f69a5dabc4cae69a257b3ea162a0fae3193c31d5445",
-    "setNoteContract": "0xc7b13ad91f934774f38a144dfec2e407a25a0976b464697098bdd1fde91bc418",
-    "registerAssetTSLA": "0xf855f009d2e3a9b27b6a30304df94deb1872c7f4db7a4dc9d3bce55afbe09943"
+    "AssetRegistry": "0x6a38c5c21b42c90c6368f5e8bf332ea28fa8b1743c24b0287690a642f0022856",
+    "ProtectionOracle": "0xc351673b0255ff83c73f9240770e3a74cb8e16bf8001f6a96254f31f2aa8d53e",
+    "SherwoodVault": "0x558b31434f7cf2b5ba93e459f2ac444dfb623089f2c9c2cfcf4e72934ba2e9d6",
+    "ProtectionNote": "0x144585ee7139dd7e87e524ef7fc21ba0277bc0f0b82e362f97ba62a8bed60462",
+    "setNoteContract": "0xa260d705f28ef2bf8158867a77c38446e9ffd34b0fdf45e89225b3ea2818f058",
+    "registerAssetTSLA": "0x9c3810ab145a8f5af423757e70c4f13c0a2acba573f856ab0bbff0c09f699612",
+    "registerAssetAMZN": "0x6240bd3a2452477b21d2be6ddf1f9f162c405914857af79e55da8b5e6e8c73d6",
+    "registerAssetNFLX": "0x9d3af8c6b91e9290e88b9394afc5a25f53ee68c529b7159ddd8bcd78e536bc94",
+    "registerAssetPLTR": "0x07cdfa2c76fed843b0e5b513df75c20dd359f04d2192718b39a02c7cfa79c0b2",
+    "registerAssetAMD": "0x05a1ac1e9182c30944ff54b7939074fd9a31ced6626671659ba4fb30c9b0b84e"
   },
-  "wiringReadBack": "All read from chain 2026-09-16 after deploy, independent of the deploy script's own asserts: vault.token() = MockUSDG 0x8c4aa106..., vault.noteContract() = the v6 note, vault.bufferBps() = 2000, vault.totalDeposits() = 0 and reserved() = 0 (fresh vault, unfunded), vault owner = deployer, note.registry()/oracle()/vault() all point at their v6 siblings, note.nextId() = 0, note.SETTLEMENT_WINDOW() = 2592000 (30 days — the audit fix is live), oracle.sequencerUptimeFeed() = address(0) with sequencerGracePeriod() = 3600 (check OFF by design — 46630 publishes no feed), registry.getAsset(TSLA) = feed 0x9b1bE514... (the persisted DemoFeed) / 72h staleness / active + registered — and the registration itself passed the new 18-decimals token validation (TSLA is 18). Codesizes: registry 3410, oracle 1645, vault 3268, note 6017.",
+  "wiringReadBack": "v7 read from chain 2026-09-18, independent of the deploy script's own asserts: vault.bufferBps() = 2000, vault.protocolFeeBps() = 1000 (Sherwood keeps 10% of each premium), vault.treasury() = deployer 0xad07...49A0, vault.pendingProtocolFees() = 0, vault.totalShares() = 0 (fresh share ledger), vault.totalDeposits() = 0 and reserved() = 0 (fresh vault, unfunded), vault.noteContract() = the v7 note; note.maxAssetExposureBps() = 3000 (per-stock liability cap = 30% of deposits), note.SETTLEMENT_WINDOW() = 2592000 (30 days), registry.allAssets() = the five demo assets (TSLA/AMZN/PLTR/AMD active, NFLX registered-but-closed), oracle.sequencerUptimeFeed() = address(0) with grace 3600 (OFF by design — no feed on 46630). Dry run passed clean, broadcast under termux-wake-lock, exit 0.",
   "settlementToken": {
     "symbol": "MockUSDG",
     "name": "Mock USDG",
@@ -225,10 +229,23 @@
   },
   "config": {
     "bufferBps": 2000,
+    "protocolFeeBps": 1000,
+    "treasury": "0xad073d80DE39f123629229E79e94C886fea549A0",
+    "maxAssetExposureBps": 3000,
     "deployer": "0xad073d80DE39f123629229E79e94C886fea549A0"
+  },
+  "funding": {
+    "date": "2026-09-18",
+    "txs": {
+      "MockUSDG.faucet()": "0x25195cb5a8ace49ea3820d182186bba6c72b2a50310e9e0500378cdafc22c543",
+      "approve(vault, 1000e6)": "0xf11a5a18f4693bb3b992b394ad4dd0668d3983b9a0281718ef6e4ad88fe1048a",
+      "vault.deposit(1000e6)": "0x95dbf98d77d1082aa7cc7be58f34728f4bdf4d3f27b5d381ec244ae7d50be0a6"
+    },
+    "readBack": "totalDeposits 1000000000 (1,000 MockUSDG); totalShares 1000000000 and sharesOf(deployer) 1000000000 — the first deposit mints 1:1; reserved 0; availableCapacity 800000000 (20% buffer); vault custody 1000000000 == totalDeposits. The v7 backer pool is live."
   },
   "verification": "All four v6 protocol contracts source-verified on the explorer 2026-09-16 (AssetRegistry, ProtectionOracle, SherwoodVault, ProtectionNote — solc 0.8.35, optimizer 200 runs, constructor args included for the oracle (sequencerUptimeFeed=0, gracePeriod=3600), the vault (MockUSDG, 2000 bps) and the note (registry, oracle, vault); the registry has none). Same procedure that verified v5: forge verify-contract against the explorer's Etherscan-compatible API, keyless dummy key accepted, every constructor-args blob byte-validated against its creation transaction before submission — with one lesson recorded: the broadcast run-latest.json lists transactions in an order that does NOT match on-chain nonce order, so tx hashes must be identified by nonce + to-field + input tail (the first mapping attempt swapped setNoteContract/registerAsset and the note CREATE, caught by the args-validation mismatch and fixed by nonce probing). Each verify returned 'Pass - Verified' (the oracle reported 'already verified' — an earlier submission had landed before its poll failed).",
   "notes": [
+    "v7 deployed 2026-09-18: the backer upgrade. SherwoodVault gains a share ledger — anyone can deposit, shares earn 90% of every premium pro rata (protocolFeeBps 1000, hard-capped at 2500, treasury sweeps a bucket that never counts toward backing) and bear payouts pro rata; depositor withdrawals (withdraw by assets, redeem by shares) are capped at availableCapacity, so reserved collateral and the buffer are never withdrawable by anyone — the owner's old withdrawSurplus is gone. ProtectionNote gains the per-stock concentration cap (assetExposure + maxAssetExposureBps, set at deploy to 3000 bps of vault deposits, immutable) on top of the per-holder stack cap. #3 guarantees (expiry, stale rejection, feed binding) were verified as-built, unchanged. 190/190 tests (was 176). Frontend getAsset decode fix shipped with this deploy: the deployed contract returns struct-returns with an outer ABI indirection (pinned by test/ReproGetAsset.t.sol), which had silently emptied every UI asset list. Funding and a v7 demo are the remaining live work; the v6 three-ownership demo never ran and is superseded by this deploy.",
     "v6 deployed 2026-09-16. It carries the six audit fixes on top of everything v5 had: the aggregate exposure cap (one position can no longer back a stack of notes), the 30-day claim window with forfeit semantics (a payout can no longer ride an unbounded horizon past expiry, and the forfeit path reads no price so a dead feed cannot block a release), the per-note settlement feed binding (feed rotation only affects notes created after it), the set-once note-contract binding (repointing — stranding or hostile-wiring — is impossible), and the 18-decimals stock-token validation at registration (live-proven: TSLA registered through it). Commits 828b3b0/8c79c83/1792299/767a2db/15cc107, 176/176 tests. All four contracts explorer-verified (see verification); v6 is unfunded — funding and the demo re-run are the remaining work.",
     "The v5 stack (registry 0x4DE45eCb..., oracle 0x663da2d1..., vault 0x1dd47dE1..., note 0x073AEBD5...) is abandoned with the demo evidence intact: both v4 legs settled 2026-09-14, the three-ownership v5 demo (60/30/0 at one price) settled 2026-09-16 — see the demoNotes (v4) and v5Demo (v5) objects below. The v5Demo evidence was produced by code that predates the six fixes, which is exactly what makes it the correct baseline: the fixes change create/rotation/binding surfaces, not the per-note eligibleAmount payout the demo proves.",
     "v5 deployed 2026-09-14. It carries everything v4 lacked: the Chainlink L2 sequencer-uptime gate (off here by design — 46630 publishes no feed), the 8-decimal feed scale check at registration and rotation, the tightened withdrawSurplus/setBufferBps rules that can never breach invariant 1, and the eligibleAmount settlement basis (payout computed on min(note.amount, stock the owner still holds), reserve always released in full; commit 569ef97, 164/164 tests green). The oracle gained constructor arguments, so this had to be a fresh deploy, not a config nudge.",
