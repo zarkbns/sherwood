@@ -35,6 +35,52 @@ export default function Vault() {
   const { writeContract, data: txHash, isPending: isWriting, error } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
 
+  // Backer position: shares are the claim, the share price carries the premiums.
+  const { data: shares } = useReadContract({
+    address: deployed?.vault,
+    abi: vaultAbi,
+    functionName: "sharesOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!deployed },
+  });
+  const { data: totalShares } = useReadContract({
+    address: deployed?.vault,
+    abi: vaultAbi,
+    functionName: "totalShares",
+    query: { enabled: !!deployed },
+  });
+  const { data: feeBps } = useReadContract({
+    address: deployed?.vault,
+    abi: vaultAbi,
+    functionName: "protocolFeeBps",
+    query: { enabled: !!deployed },
+  });
+
+  const {
+    writeContract: withdrawWrite,
+    data: withdrawHash,
+    isPending: isWithdrawing,
+    error: withdrawError,
+  } = useWriteContract();
+  const withdrawReceipt = useWaitForTransactionReceipt({ hash: withdrawHash });
+
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const withdrawWei = st ? parseTokenAmount(withdrawAmount, st.decimals) : 0n;
+
+  function withdraw() {
+    if (!deployed) return;
+    withdrawWrite({ address: deployed.vault, abi: vaultAbi, functionName: "withdraw", args: [withdrawWei] });
+  }
+
+  // The claim is the shares' value at the current share price; what can actually leave
+  // is the smaller of the claim and free capacity — reserved funds never move.
+  const claim =
+    shares !== undefined && totalShares !== undefined && totalShares > 0n && totalDeposits !== undefined
+      ? (shares * totalDeposits) / totalShares
+      : 0n;
+  const withdrawable = claim > 0n && availableCapacity !== undefined && availableCapacity < claim ? availableCapacity : claim;
+  const backerPct = feeBps !== undefined ? 100 - Number(feeBps) / 100 : null;
+
   function approve() {
     if (!st) return;
     writeContract({ address: st.address, abi: erc20Abi, functionName: "approve", args: [deployed!.vault, amountWei] });
@@ -61,6 +107,16 @@ export default function Vault() {
         ? { kind: "success", text: "Confirmed." }
         : error
           ? { kind: "error", text: `Failed: ${error.message.slice(0, 120)}` }
+          : null;
+
+  const withdrawTxState: TxFail | null = isWithdrawing
+    ? { kind: "pending", text: "Confirm in wallet…" }
+    : withdrawReceipt.isLoading
+      ? { kind: "busy", text: "Waiting for confirmation…" }
+      : withdrawReceipt.isSuccess
+        ? { kind: "success", text: "Confirmed." }
+        : withdrawError
+          ? { kind: "error", text: `Failed: ${withdrawError.message.slice(0, 120)}` }
           : null;
 
   return (
@@ -125,10 +181,11 @@ export default function Vault() {
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               {/* Deposit ticket */}
               <div className="inset-card rise rounded-3xl p-6" style={{ animationDelay: "120ms" }}>
-                <Eyebrow>Deposit</Eyebrow>
+                <Eyebrow>Back the pool</Eyebrow>
                 <p className="mt-2 text-sm text-fog">
-                  Back the protections and earn what buyers pay for them. Your money sits in {st?.symbol ?? "the settlement token"};
-                  only the part that is not already promised to an active note can ever be withdrawn.
+                  {backerPct !== null ? `${backerPct}% of every premium` : "Most of every premium"} flows to backers pro
+                  rata — Sherwood keeps {feeBps !== undefined ? Number(feeBps) / 100 : "—"}%. Payouts are borne the same
+                  way. Only the part of your stake that is not promised to an active note can ever be withdrawn.
                 </p>
                 <input
                   className="tnum mt-4 w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none focus:border-action/60"
@@ -184,11 +241,60 @@ export default function Vault() {
                   ))}
                 </ul>
                 <p className="mt-5 text-xs text-mist">
-                  All four properties are enforced on-chain and covered by the test suite, including a fuzzed
+                  All of these are enforced on-chain and covered by the test suite, including a fuzzed
                   hold-over-sequence invariant.
                 </p>
               </div>
             </div>
+
+            {/* My stake */}
+            {isConnected ? (
+              <div className="inset-card rise mt-4 rounded-3xl p-6" style={{ animationDelay: "240ms" }}>
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <Eyebrow>My stake</Eyebrow>
+                    <div className="tnum mt-2 font-display text-4xl font-bold leading-none tracking-tight">
+                      {tok(claim, st)}
+                    </div>
+                    <p className="mt-2 text-xs text-mist">
+                      {tok(shares, st)} shares · share value carries the premiums already paid in and the payouts already
+                      made
+                    </p>
+                  </div>
+                  <div className="w-full max-w-xs">
+                    <input
+                      className="tnum w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm outline-none focus:border-action/60"
+                      placeholder={`0.00 ${st?.symbol ?? ""}`}
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      inputMode="decimal"
+                    />
+                    <div className="mt-2 flex items-center justify-between text-xs text-mist">
+                      <span className="tnum">
+                        withdrawable now {tok(withdrawable, st)} — the rest is locked by active notes or the buffer
+                      </span>
+                      {withdrawable > 0n ? (
+                        <button
+                          type="button"
+                          onClick={() => setWithdrawAmount(formatUnits(withdrawable, st?.decimals ?? 6))}
+                          className="shrink-0 text-action hover:underline"
+                        >
+                          Max
+                        </button>
+                      ) : null}
+                    </div>
+                    <button
+                      onClick={withdraw}
+                      disabled={!isConnected || withdrawWei === 0n || withdrawWei > withdrawable || isWithdrawing || withdrawReceipt.isLoading}
+                      className="btn-ghost mt-4 w-full rounded-2xl px-4 py-3 text-sm"
+                    >
+                      Withdraw
+                    </button>
+                    <TxStatus state={withdrawTxState} />
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         )}
       </main>
@@ -201,6 +307,7 @@ const RULES = [
   "Reserved collateral covers every active note's maximum payout",
   "A 20% reserve buffer stays unencumbered at all times",
   "Payouts re-verify the vault's real token balance at settlement",
+  "No withdrawal — backer or protocol — can take funds an active note needs",
 ];
 
 function tok(value: bigint | undefined, st?: { decimals: number; symbol: string }): string {

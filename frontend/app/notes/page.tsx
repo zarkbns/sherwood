@@ -1,6 +1,6 @@
 "use client";
 
-import { useAccount, useChainId, useWriteContract, useWaitForTransactionReceipt, useReadContracts } from "wagmi";
+import { useAccount, useChainId, useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts } from "wagmi";
 import { formatUnits } from "viem";
 import { Header } from "@/components/Header";
 import {
@@ -30,6 +30,15 @@ export default function Notes() {
 
   const mine = notes.filter((n) => address && n.owner.toLowerCase() === address.toLowerCase());
   const settledById = new Map(receipts.map((r) => [r.noteId.toString(), r]));
+
+  // The claim window is a contract constant, read — not assumed — so the deadline the
+  // UI prints is the one settle() actually enforces.
+  const { data: claimWindow } = useReadContract({
+    address: deployed?.note,
+    abi: noteAbi,
+    functionName: "SETTLEMENT_WINDOW",
+    query: { enabled: !!deployed },
+  });
 
   return (
     <>
@@ -76,6 +85,7 @@ export default function Notes() {
                 stDecimals={st?.decimals ?? 6}
                 stSymbol={st?.symbol ?? ""}
                 receipt={settledById.get(n.id.toString())}
+                claimWindow={claimWindow !== undefined ? Number(claimWindow) : 30 * 24 * 60 * 60}
                 delay={i * 50}
               />
             ))
@@ -101,6 +111,7 @@ function NoteCard({
   stDecimals,
   stSymbol,
   receipt,
+  claimWindow,
   delay,
 }: {
   note: NoteView;
@@ -109,6 +120,7 @@ function NoteCard({
   stDecimals: number;
   stSymbol: string;
   receipt?: { settlementPrice: bigint; payoutToken: bigint; recipient: string };
+  claimWindow: number;
   delay: number;
 }) {
   const { deployed } = useDeployed();
@@ -167,7 +179,11 @@ function NoteCard({
           <div className="text-right">
             <div className="tnum text-sm text-ink">{fmtUsd18(note.protectedUSD18)} floor</div>
             <div className="tnum mt-0.5 text-xs text-mist">
-              {settled ? "closed" : ready ? "claim open" : fmtCountdown(note.expiry)}
+              {settled
+                ? "closed"
+                : ready
+                  ? `claim ends ${fmtExpiry(note.expiry + BigInt(claimWindow))} — payout forfeits after`
+                  : fmtCountdown(note.expiry)}
             </div>
           </div>
           <Pill tone={settled ? "done" : ready ? "ready" : "neutral"}>
