@@ -179,12 +179,23 @@ export const registryAbi = [
     type: "function",
     stateMutability: "view",
     inputs: [{ name: "token", type: "address" }],
+    // Solidity emits a struct return that contains a dynamic member (symbol's string) as
+    // ONE wrapped dynamic tuple on the wire: an outer offset word, then the tuple. Verified
+    // against the deployed v6 registry byte-for-byte (test/ReproGetAsset pattern) — the
+    // flat form decodes to garbage and silently emptied every asset list. notes() stays
+    // flat because that struct is all-static.
     outputs: [
-      { name: "symbol", type: "string" },
-      { name: "feed", type: "address" },
-      { name: "maxStaleness", type: "uint256" },
-      { name: "active", type: "bool" },
-      { name: "registered", type: "bool" },
+      {
+        name: "asset",
+        type: "tuple",
+        components: [
+          { name: "symbol", type: "string" },
+          { name: "feed", type: "address" },
+          { name: "maxStaleness", type: "uint256" },
+          { name: "active", type: "bool" },
+          { name: "registered", type: "bool" },
+        ],
+      },
     ],
   },
   {

@@ -110,14 +110,22 @@ export function useAssets(): { assets: AssetView[]; isLoading: boolean } {
       const [assetRes, balanceRes, decimalsRes, nameRes] = meta.data!.slice(i * PER_TOKEN, (i + 1) * PER_TOKEN);
       // No registry entry means the row has nothing honest to display; drop it.
       if (!assetRes || assetRes.status === "failure") return;
-      const asset = assetRes.result as unknown as readonly [string, Address, bigint, boolean, boolean];
+      // getAsset returns the Asset struct as one wrapped tuple (see registryAbi); viem
+      // surfaces it with the component names.
+      const asset = assetRes.result as unknown as {
+        symbol: string;
+        feed: Address;
+        maxStaleness: bigint;
+        active: boolean;
+        registered: boolean;
+      };
       rows.push({
         token,
-        symbol: asset[0],
+        symbol: asset.symbol,
         name: nameRes?.status === "success" ? (nameRes.result as string) : undefined,
-        feed: asset[1],
-        active: asset[3],
-        maxStaleness: asset[2],
+        feed: asset.feed,
+        active: asset.active,
+        maxStaleness: asset.maxStaleness,
         price8: undefined,
         priceUpdatedAt: undefined,
         balance: address && balanceRes?.status === "success" ? (balanceRes.result as bigint) : undefined,
