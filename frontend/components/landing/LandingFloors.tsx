@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useReadContracts } from "wagmi";
 import { parseUnits } from "viem";
-import { WalletIcon } from "@/components/WalletIcon";
+import { TokenLogo } from "@/components/TokenLogo";
 import { Skeleton } from "@/components/ui";
 import { useDeployed, useAssets, type AssetView } from "@/lib/protocol";
 import { noteAbi } from "@/lib/abis";
@@ -125,7 +125,8 @@ export function LandingFloors() {
 
 /**
  * The three reference backdrops, in this app's palette: a green glow, charcoal scanlines,
- * and white. Assigned by position, cycling. The generated avatar carries the asset's mark.
+ * and white. Assigned by position, cycling. The token's own brand mark (the same
+ * public/tokens set the dashboard rows use) carries the poster.
  */
 const POSTERS = [
   "bg-[radial-gradient(120%_120%_at_50%_0%,#2e4a00_0%,#0b1000_72%)]",
@@ -155,10 +156,8 @@ function FloorCard({
           onWhite ? "border border-line" : ""
         } ${backdrop}`}
       >
-        <WalletIcon
-          seed={asset.symbol}
-          background={null}
-          palette={onWhite ? "ink" : "brand"}
+        <TokenLogo
+          symbol={asset.symbol}
           className="mb-3 h-24 w-24 drop-shadow-[0_16px_20px_rgba(0,0,0,0.35)]"
         />
         <span
