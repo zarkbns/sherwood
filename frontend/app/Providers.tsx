@@ -28,8 +28,27 @@ const config = createConfig({
     injected(),
     metaMask(),
     coinbaseWallet({ ...metadata, preference: "all" }),
-    // WalletConnect (mobile wallets) only when a real project id is configured.
-    ...(wcProjectId ? [walletConnect({ projectId: wcProjectId, metadata, showQrModal: true })] : []),
+    // WalletConnect is the connect path: one tap opens WalletConnect's own chooser (its
+    // modal ships as @reown/appkit, dynamically loaded by the provider — the same
+    // WalletConnect SDK, not a second wallet library). The chooser lists real wallets and
+    // deep-links into them on mobile; Sherwood stops guessing which wallet anyone uses.
+    // Theming keeps the modal in this app's visual register: dark, action green.
+    ...(wcProjectId
+      ? [
+          walletConnect({
+            projectId: wcProjectId,
+            metadata,
+            showQrModal: true,
+            qrModalOptions: {
+              themeMode: "dark",
+              themeVariables: {
+                "--wcm-accent-color": "#c0ff00",
+                "--wcm-accent-fill-color": "#c0ff00",
+              },
+            },
+          }),
+        ]
+      : []),
   ],
   transports: {
     [robinhoodTestnet.id]: http(process.env.NEXT_PUBLIC_RPC_ROBINHOOD_TESTNET),

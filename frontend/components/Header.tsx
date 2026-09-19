@@ -1,14 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAccount, useDisconnect, useChainId, useSwitchChain } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
 import { robinhoodTestnet } from "@/lib/chain";
+import { connectTarget, describeConnectError } from "@/lib/connect";
 import { IconShield, IconGauge, IconFile, IconVault, IconArrow } from "@/components/ui";
 import { WalletIcon } from "@/components/WalletIcon";
-import { ConnectModal } from "@/components/ConnectModal";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", Icon: IconGauge },
@@ -21,11 +20,12 @@ const CHAIN_NAMES: Record<number, string> = {
   [robinhoodTestnet.id]: "Robinhood Chain Testnet",
 };
 
-function ConnectButton({ onConnect }: { onConnect: () => void }) {
+function ConnectButton() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
+  const { connect, connectors, isPending, error } = useConnect();
 
   if (isConnected && address) {
     const onSupported = chainId === robinhoodTestnet.id;
@@ -53,20 +53,33 @@ function ConnectButton({ onConnect }: { onConnect: () => void }) {
     );
   }
 
+  // One tap, straight into WalletConnect's chooser — the modal it ships with decides
+  // which wallet, lists the real ones, and deep-links on mobile. Closing that modal
+  // without approving aborts the pairing attempt, so the button is live again for a
+  // retry and the only thing left on screen is a short calm note.
+  const target = connectTarget(connectors);
+  const note = describeConnectError(error ?? null);
   return (
-    <button
-      onClick={onConnect}
-      className="btn-action inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm"
-    >
-      Connect wallet
-      <IconArrow className="h-4 w-4" />
-    </button>
+    <div className="flex min-w-0 items-center justify-end gap-3">
+      {note ? (
+        <span role="status" className={`truncate text-[11px] ${note.cancelled ? "text-mist" : "text-loss"}`}>
+          {note.message}
+        </span>
+      ) : null}
+      <button
+        onClick={() => target && connect({ connector: target, chainId: robinhoodTestnet.id })}
+        disabled={!target || isPending}
+        className="btn-action inline-flex shrink-0 items-center gap-2 rounded-full px-5 py-2.5 text-sm disabled:opacity-60"
+      >
+        {isPending ? "Waiting for wallet…" : "Connect wallet"}
+        <IconArrow className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
 export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
   const pathname = usePathname();
-  const [connectOpen, setConnectOpen] = useState(false);
   // The landing page keeps the app one click away: Home plus every app route.
   const navLinks = variant === "landing" ? [{ href: "/", label: "Home" }, ...links] : links;
   return (
@@ -101,11 +114,9 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
             ))}
           </nav>
 
-          <ConnectButton onConnect={() => setConnectOpen(true)} />
+          <ConnectButton />
         </div>
       </header>
-
-      <ConnectModal open={connectOpen} onClose={() => setConnectOpen(false)} />
 
       {/* Mobile tab bar — peers, not a drawer. Fixed, blurred, safe-area aware. The
           landing page is marketing: no tab bar there, its CTAs lead into the app. */}
