@@ -10,7 +10,7 @@ const wcProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 const metadata = {
   name: "SherwoodNotes",
   description: "Programmable downside protection for tokenized stocks",
-  url: "https://sherwood.finance",
+  url: "https://sherwoodnotes.vercel.app",
   icons: [],
 };
 
