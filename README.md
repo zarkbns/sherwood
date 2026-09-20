@@ -41,8 +41,9 @@ payout = max(0, protectedValue - currentValue)
 
 **Key insight:** You keep all upside. Sherwood only covers the gap below your floor. The maximum possible payout is the floor value itself (`protectedValue`) — that's what the vault reserves per note. And because a note protects a *real position*, the payout covers only the shares you still hold when it settles: sell half, get half the payout; sell all, get nothing. The reserved collateral releases either way.
 
-**Three bounds around that basis:**
+**Four bounds around that basis:**
 - **One position, one stack.** You can't buy protection on shares that already back active notes — the aggregate of your active notes on an asset can never exceed the stock you actually hold.
+- **One stock, one slice.** Across everyone combined, a single stock's active liability is capped at 30% of vault deposits — one crash can only ever eat its slice.
 - **Claim deadline.** Payouts are collectible from expiry until 30 days after it (the longest priced term); miss the window and the payout is forfeited — the reserve still releases, so the vault never strands.
 - **Your note settles on its own feed.** The price source is bound when you buy; later feed rotations only affect notes that don't exist yet.
 
@@ -70,11 +71,13 @@ Once created, terms are immutable. No modifications, no surprises. To buy protec
 
 V1 supports three predefined tiers:
 
-| Tier | Floor | Premium | Use Case |
-|------|-------|---------|----------|
-| **70%** | Covers 30% drop | Lower cost | Moderate risk tolerance |
-| **80%** | Covers 20% drop | Medium cost | Balanced hedge |
-| **90%** | Covers 10% drop | Higher cost | Strong downside fear |
+| Tier | Floor | Tier risk | Use Case |
+|------|-------|-----------|----------|
+| **70%** | Covers 30% drop | +1.0% | Moderate risk tolerance |
+| **80%** | Covers 20% drop | +1.0% | Balanced hedge |
+| **90%** | Covers 10% drop | +2.0% | Strong downside fear |
+
+70% and 80% carry the same tier risk — the rate table prices only the 90% tail higher — so notes of the same duration price identically at 70% and 80%. Every tier pays the same base and duration components.
 
 Example: $1,000 position
 - 70% protection → floor is $700
@@ -133,7 +136,7 @@ Protection Notes settle using verified price data from Chainlink:
 
 Prices are never user-supplied — they always come from Chainlink. A stale price is not silently used: the oracle checks each feed's round freshness and **reverts** if it's too old, so settlement simply waits for a fresh round rather than settling on frozen data. No contract can promise a price source is never stale; Sherwood guarantees it never *acts* on a stale one.
 
-Settlement is permissionless and has no deadline: a note settles against the first price the oracle accepts at or after expiry. That is bounded by construction — the payout can never exceed the liability already reserved for that note, so a buyer waiting out a worse price is spending collateral the vault set aside for them, not exposing the vault.
+Settlement is permissionless: anyone can settle a note once it passes expiry, and within the claim window the payout is the first fresh price the oracle accepts. Waiting out a worse price costs the buyer nothing — the payout can never exceed the liability already reserved for that note — but the window is hard: past `expiry + 30 days` the payout is forfeited and the reserve releases with a zero payout, like an insurance claim past its filing deadline.
 
 ---
 
@@ -164,19 +167,20 @@ Settlement is permissionless and has no deadline: a note settles against the fir
 
 ### Smart Contracts
 
-**SherwoodVault.sol** — Holds USDG collateral, reserves capacity, executes payouts
-- `deposit()` — Deposit USDG collateral
-- `reserveFor()` — Reserve capacity and collect premium for a new note (called only by ProtectionNote; capacity checked before any token movement, and the reserve is recorded *before* the premium is pulled, so a hooked token can't re-enter past the check)
-- `settlePayout()` — Pay USDG to the buyer and release the reserved liability (payout ≤ liability, re-checked on-chain; the release is booked before the transfer)
-- `withdrawSurplus()` — Owner withdrawal, capped at `availableCapacity()`: never reserved collateral, never the reserve buffer. Wind-down is settle → `setBufferBps(0)` → withdraw
-- State: `totalDeposits`, `reserved`, `availableCapacity()`, `bufferBps`
+**SherwoodVault.sol** — Holds the settlement token (USDG), reserves capacity, executes payouts, and keeps the backer share ledger
+- `deposit()` — Deposit the settlement token and mint backer shares pro rata (1:1 into an empty vault)
+- `withdraw(assets)` / `redeem(shares)` — Backer exits, capped at `availableCapacity()`: funds reserved for active notes, and the unencumbered buffer behind them, are never withdrawable by anyone. Wind-down is settle → `setBufferBps(0)` → withdraw
+- `reserveFor()` — Reserve capacity and collect premium for a new note (called only by ProtectionNote; capacity checked before any token movement, and the reserve is recorded *before* the premium is pulled, so a hooked token can't re-enter past the check). The premium splits: the backer share joins `totalDeposits`, Sherwood's fee share parks in a bucket outside the backing pool
+- `settlePayout()` — Pay the settlement token to the buyer and release the reserved liability (payout ≤ liability, re-checked on-chain; the release is booked before the transfer)
+- `claimProtocolFees()` — Owner sweep of accrued fees to the treasury; the fee bucket never backed a reserve, so sweeping it can never strand one
+- State: `totalDeposits`, `totalShares`/`sharesOf`, `reserved`, `pendingProtocolFees`, `availableCapacity()`, `bufferBps`, `protocolFeeBps`/`treasury`
 
 **ProtectionNote.sol** — Creates and settles Protection Notes as structs keyed by `noteId` (non-transferable; no ERC-721 surface)
 - `create()` — Read verified entry price, check vault capacity, collect premium, record the note
 - `settle()` — Settle an expired note; pays the recorded buyer
 - `quote()` — Live on-chain quote so the UI never recomputes prices client-side
 - `calculatePayout()` — Spec payout formula for a hypothetical settlement price
-- State: `notes(noteId)`, `nextId`, per-note status
+- State: `notes(noteId)`, `nextId`, per-note status, `activeProtected`/`assetExposure` (the two create-time guard ledgers), and the feed each note settles against (`noteFeeds`)
 
 **ProtectionOracle.sol** — Retrieves and validates prices
 - `getPrice()` — Chainlink `latestRoundData()` with round-completeness and freshness checks
