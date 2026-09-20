@@ -5,7 +5,6 @@ import { formatUnits } from "viem";
 import Link from "next/link";
 import { Header } from "@/components/Header";
 import { StatStrip, Panel } from "@/components/dashboard/StatStrip";
-import { WalletPanel } from "@/components/dashboard/WalletPanel";
 import { BalanceCard, type CoverageItem } from "@/components/dashboard/BalanceCard";
 import { NetworkPanel } from "@/components/dashboard/NetworkPanel";
 import { ProtectFlow } from "@/components/ProtectFlow";
@@ -97,9 +96,9 @@ export default function Dashboard() {
       <main className="mx-auto max-w-6xl px-5 pb-28 pt-6 sm:px-6 sm:pb-14 sm:pt-8">
         <StatStrip items={stats} />
 
-        {/* Three columns: protection on the left, portfolio in the middle, the wallet on
-            the right — the reference's grid, carried by real reads. */}
-        <div className="mt-5 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+        {/* Two columns: protection on the left, portfolio on the right — more breathing
+            room than the old three-column grid. Wallet access lives in the header menu. */}
+        <div className="mt-5 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
           <Panel title="Buy protection" className="lg:col-span-1" bodyClassName="flex-1 flex flex-col">
             <ProtectFlow variant="card" />
           </Panel>
@@ -123,30 +122,6 @@ export default function Dashboard() {
             ) : (
               <BalanceCard totalValueUSD18={positionValue} heldCount={held.length} coverage={coverage} />
             )}
-          </Panel>
-
-          <Panel
-            title="Wallet"
-            className="lg:col-span-1"
-            bodyClassName="flex-1"
-            action={
-              stBalance ? (
-                <span className="tnum text-xs text-mist">
-                  {Number(formatUnits(stBalance.value, stBalance.decimals)).toLocaleString("en-US", {
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  {st?.symbol}
-                </span>
-              ) : null
-            }
-          >
-            <WalletPanel
-              address={address}
-              isConnected={isConnected}
-              assets={isConnected ? assets : assets.map((a) => ({ ...a, balance: undefined }))}
-              decimalsOf={(a) => a.decimals}
-              nativeBalance={nativeBalance ? { value: nativeBalance.value, decimals: nativeBalance.decimals } : undefined}
-            />
           </Panel>
         </div>
 

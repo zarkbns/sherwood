@@ -4,11 +4,13 @@ import { WalletIcon } from "@/components/WalletIcon";
 import { LandingFloors } from "@/components/landing/LandingFloors";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/dashboard";
+
 /**
  * The landing page — the visitor's first look at Sherwood, on the reference's shape:
  * a polka-dot hero with floating marks and one copy block, then a dark market board,
  * then the footer. The reference's scattered avatars and card art are generated marks
- * (lib/walletIcons) in this app's palette; its hardcoded prices are live chain reads
+ * (WalletIcon) in this app's palette; its hardcoded prices are live chain reads
  * (LandingFloors). The whole page is static until the board mounts — the sell happens
  * in the hero, the proof happens on-chain.
  */
@@ -50,7 +52,7 @@ export default function Landing() {
               vault pays you the gap. Settled against prices read from the chain.
             </p>
             <Link
-              href="/dashboard"
+              href={APP_URL}
               className="btn-action mt-8 inline-flex items-center gap-2 rounded-full px-8 py-3 text-sm"
             >
               Launch app

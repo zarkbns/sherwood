@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -26,6 +27,18 @@ function ConnectButton() {
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const { connect, connectors, isPending, error } = useConnect();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   if (isConnected && address) {
     const onSupported = chainId === robinhoodTestnet.id;
@@ -41,19 +54,43 @@ function ConnectButton() {
         ) : (
           <span className="hidden text-xs text-mist lg:inline">{CHAIN_NAMES[chainId]}</span>
         )}
-        <button
-          onClick={() => disconnect()}
-          title="Disconnect wallet"
-          className="tnum flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-4 text-xs text-fog transition-colors hover:border-mist hover:text-ink"
-        >
-          <WalletIcon seed={address} className="h-7 w-7 rounded-full" />
-          {address.slice(0, 6)}…{address.slice(-4)}
-        </button>
+        <div ref={menuRef} className="relative">
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            title="Wallet menu"
+            className="tnum flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-4 text-xs text-fog transition-colors hover:border-mist hover:text-ink"
+          >
+            <WalletIcon seed={address} className="h-7 w-7 rounded-full" />
+            {address.slice(0, 6)}...{address.slice(-4)}
+          </button>
+          {menuOpen && (
+            <div className="absolute inset-x-0 top-full z-30 mt-1 overflow-hidden rounded-2xl border border-line bg-surface-2 shadow-xl">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(address);
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs text-fog transition-colors hover:bg-white/[0.04] hover:text-ink"
+              >
+                Copy address
+              </button>
+              <button
+                onClick={() => {
+                  disconnect();
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs text-loss transition-colors hover:bg-white/[0.04]"
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // One tap, straight into WalletConnect's chooser — the modal it ships with decides
+  // One tap, straight into WalletConnect's own chooser — the modal it ships with decides
   // which wallet, lists the real ones, and deep-links on mobile. Closing that modal
   // without approving aborts the pairing attempt, so the button is live again for a
   // retry and the only thing left on screen is a short calm note.
@@ -71,7 +108,7 @@ function ConnectButton() {
         disabled={!target || isPending}
         className="btn-action inline-flex shrink-0 items-center gap-2 rounded-full px-5 py-2.5 text-sm disabled:opacity-60"
       >
-        {isPending ? "Waiting for wallet…" : "Connect wallet"}
+        {isPending ? "Waiting for wallet..." : "Connect wallet"}
         <IconArrow className="h-4 w-4" />
       </button>
     </div>
@@ -88,7 +125,7 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-3.5 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5">
             <Image
-              src="/logo.png"
+              src="/black-logo.png"
               alt="Sherwood"
               width={64}
               height={64}
@@ -114,7 +151,7 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
             ))}
           </nav>
 
-          <ConnectButton />
+          {variant !== "landing" ? <ConnectButton /> : null}
         </div>
       </header>
 

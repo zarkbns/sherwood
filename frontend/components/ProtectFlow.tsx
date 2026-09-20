@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { formatUnits } from "viem";
 import { SegmentedControl, Eyebrow, TxStatus, type TxFail } from "@/components/ui";
@@ -161,20 +161,11 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
             />
             <div className="flex shrink-0 items-center gap-2 rounded-full bg-surface-2 px-3 py-2">
               {selected ? <TokenLogo symbol={selected.symbol} className="h-5 w-5" /> : null}
-              <select
+              <AssetSelect
+                assets={assets.filter((a) => a.active)}
                 value={asset}
-                onChange={(e) => setAsset(e.target.value)}
-                aria-label="Asset to protect"
-                className="cursor-pointer appearance-none bg-transparent pr-1 text-sm text-ink outline-none"
-              >
-                <option value="">Select</option>
-                {assets.map((a) => (
-                  <option key={a.token} value={a.token} disabled={!a.active}>
-                    {a.symbol}
-                    {a.active ? "" : " (coming soon)"}
-                  </option>
-                ))}
-              </select>
+                onChange={setAsset}
+              />
             </div>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-mist">
@@ -351,6 +342,68 @@ export function ProtectFlow({ variant = "page" }: { variant?: "page" | "card" })
           <div className="mt-6">{actions}</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AssetSelect({
+  assets,
+  value,
+  onChange,
+}: {
+  assets: { token: string; symbol: string; price8: bigint | undefined; decimals: number }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = assets.find((a) => a.token === value);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2"
+      >
+        <span className="text-sm text-ink">{selected ? selected.symbol : "Select"}</span>
+        <span className="text-[10px] text-mist">▼</span>
+      </button>
+      {open && (
+        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-auto rounded-2xl border border-line bg-surface-2 shadow-xl">
+          {assets.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-mist">No active assets</div>
+          ) : (
+            assets.map((a) => (
+              <button
+                key={a.token}
+                type="button"
+                onClick={() => {
+                  onChange(a.token);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-white/[0.04] ${
+                  a.token === value ? "text-ink" : "text-fog"
+                }`}
+              >
+                <TokenLogo symbol={a.symbol} className="h-5 w-5" />
+                <span className="flex-1">{a.symbol}</span>
+                <span className="tnum text-xs text-mist">{fmtPrice(a.price8)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
