@@ -294,7 +294,7 @@
     "settlePlan": "SEQUENCE MATTERS. (1) Morning 2026-09-21 after note 1 expires (~08:16 local): DemoSettle NOTE_ID=1 DEMO_SETTLE_PRICE=60e8 -> payout leg, $1.00 pays (floor 7 - current 6). (2) Immediately reset the TSLA feed to 100e8 (cast send set(int256)) — note 2's floor is $70/token, so leaving the feed at 60e8 would wrongly pay note 2. (3) Evening 2026-09-21 after note 2 expires (~17:55 local): DemoSettle NOTE_ID=2 DEMO_SETTLE_PRICE=100e8 -> zero-payout leg, reserve releases with no PayoutExecuted. (4) 2026-09-27 note 3 becomes settleable (pre-deadline third receipt, price choice free). (5) Note 4 expires 2026-10-20, after the Oct 4 submission — intentionally left live. All demo-script runs need the explicit --private-key flag: ScriptBase's no-arg startBroadcast simulates from forge's default sender, which reverts NotOwner on the owner-gated DemoFeed (harmless for Deploy.s.sol, where the simulated deployer is the new owner it just installed).",
     "settlements": {
       "note1_payoutLeg": {
-        "settledAt": "2026-09-21 ~08:24 local",
+        "settledAt": "2026-09-21 20:44 local (settle block ts 1790019843; earlier '~08:24' in this field was a wrong guess by the assistant, replaced with the on-chain block time)",
         "txs": {
           "DemoFeed.set(60e8)": "0x4128177bef2c9ba10252a4e0d2c2d9bfe1d6c96048d7591e23a6611d0a3b1a27",
           "note.settle(1)": "0x4c90663fe4ca4008227ead1c3a23b1c6b76e889c200739421c8221e841d38e7c"
@@ -303,8 +303,20 @@
         "payoutToken": "1000000 MockUSDG ($1.00 = max(0, floor 7 - current 6), a real ERC-20 transfer to the buyer)",
         "noteStatus": "SETTLED (1), read back on-chain",
         "vaultAfter": "reserved 36500000 (43.5e6 - 7e6 liability released); totalDeposits 3087551250 (-1000000 payout borne by backers); pendingProtocolFees 155000 untouched; custody 3087706250 == totalDeposits + pendingProtocolFees — the physical-balance invariant holds to the wei after a live payout; buyer 934450000 (+1000000, exact)",
-        "feedReset": "0xfeec3dcc4c0f4e97c89fdd02a32419babd6246f4fa8f03bc29cd95c12566bc81 — TSLA feed back to 100e8 (round 9) BEFORE note 2's expiry; at $60 note 2's $70/token floor would have wrongly paid",
-        "pending": "note 2 zero-payout leg after ~17:55 local 2026-09-21: DemoSettle NOTE_ID=2 DEMO_SETTLE_PRICE=100e8 — expect NO PayoutExecuted and NO ERC-20 Transfer, only CapacityReleased(2, 7000000) + NoteSettled(2, 100e8, 0, buyer)"
+        "feedReset": "0xfeec3dcc4c0f4e97c89fdd02a32419babd6246f4fa8f03bc29cd95c12566bc81 (block ts 1790020041) — TSLA feed back to 100e8 (round 9) BEFORE note 2's expiry; at $60 note 2's $70/token floor would have wrongly paid",
+        "next": "zero-payout leg settled below — see note2_zeroPayoutLeg"
+      },
+      "note2_zeroPayoutLeg": {
+        "settledAt": "2026-09-21 21:00 local (settle block ts 1790020813); note 2 had expired at ts 1790013633 ≈ 19:03 local — the assistant's earlier '~17:55' estimate was wrong, the block time is authoritative",
+        "txs": {
+          "DemoFeed.set(100e8)": "0x9973f966d5c46231503be45372ec664fc844516c435bf1e7685be72fe3d137a4",
+          "note.settle(2)": "0xbd99dd21a32821f96c31a80a201e01d5a2d0dfa8076f4fc91e4e5628fff64b7d"
+        },
+        "settlementPrice": "100e8 ($100 — at/above the $70/token floor, so payout is exactly 0)",
+        "payoutToken": "0 — NO PayoutExecuted and NO ERC-20 Transfer, only CapacityReleased(2, 7000000) + NoteSettled(2, 100e8, 0, buyer): the buyer keeps the upside",
+        "noteStatus": "SETTLED (1), read back on-chain",
+        "vaultAfter": "reserved 29500000 (36.5e6 - 7e6 released); totalDeposits 3087551250 UNCHANGED (a zero payout must not move deposits); custody 3087706250 == deposits + pendingFees 155000 — exact; buyer MockUSDG 934450000 UNCHANGED",
+        "bothLegs": "v7 has now settled BOTH branches live: note 1 paid max(0, floor - current) = $1.00 via real transfer; note 2 released its full reserve paying nothing. The AGENTS checklist item 'settled with and without payout' is closed on v7. Remaining receipts: note 3 (AMZN 7d) settles 2026-09-27, pre-deadline; note 4 (PLTR 30d) expires 2026-10-20, post-deadline exhibit."
       }
     }
   },
